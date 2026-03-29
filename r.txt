@@ -1,0 +1,1 @@
+{'fund_name': '南方昌元可转债债券A', 'one_year_profit': '38.84%', 'six_month_profit': '9.76%', 'three_month_profit': '1.13%', 'one_month_profit': '-10.76%'}
