@@ -36,7 +36,7 @@ export default function About() {
           throw new Error(`Failed to fetch funds data: ${response.status}`);
         }
         const data = await response.json();
-        
+
         // 确保数据是数组
         if (Array.isArray(data)) {
           setFundsData(data);
@@ -57,31 +57,17 @@ export default function About() {
     fetchFundsData();
   }, []);
 
-  // 搜索功能
-  useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredFunds(fundsData);
-    } else {
-      const term = searchTerm.toLowerCase();
-      const filtered = fundsData.filter(fund => {
-        // 确保fund_name和fund_code存在
-        const fundName = fund.fund_name || '';
-        const fundCode = fund.fund_code || '';
-        return fundName.toLowerCase().includes(term) || 
-               fundCode.includes(term);
-      });
-      setFilteredFunds(filtered);
-    }
-  }, [searchTerm, fundsData]);
-
   // 搜索基金
   const handleSearch = async (e) => {
     e.preventDefault();
-    if (searchTerm.trim() === '') return;
-    
+    if (searchTerm.trim() === '') {
+      setFilteredFunds(fundsData);
+      return;
+    }
+
     // 检查是否是基金代码（6位数字）
     const isFundCode = /^\d{6}$/.test(searchTerm);
-    
+
     if (isFundCode) {
       // 如果是基金代码，尝试直接获取该基金数据
       try {
@@ -91,18 +77,17 @@ export default function About() {
           throw new Error('Failed to fetch fund data');
         }
         const data = await response.json();
-        
+
         // 检查返回的数据是否有效
         if (!data || !data.fund_code) {
           throw new Error('Invalid fund data received');
         }
-        
+
         // 检查该基金是否已在列表中
         const exists = fundsData.some(fund => fund.fund_code === data.fund_code);
         if (!exists) {
           // 如果不在列表中，添加到列表
           const updatedFunds = [...fundsData, data];
-          setFundsData(updatedFunds);
           setFilteredFunds(updatedFunds);
         } else {
           // 如果在列表中，只显示该基金
@@ -122,15 +107,15 @@ export default function About() {
         const response = await fetch(`http://localhost:3001/api/funds/search?query=${encodeURIComponent(searchTerm)}`);
         if (response.ok) {
           const data = await response.json();
-          if (Array.isArray(data)) {
+          if (Array.isArray(data) && data.length > 0) {
             setFilteredFunds(data);
           } else {
-            // 如果服务器返回的不是数组，在本地数据中搜索
+            // 如果服务器返回空数组，在本地数据中搜索
             const term = searchTerm.toLowerCase();
             const filtered = fundsData.filter(fund => {
               const fundName = fund.fund_name || '';
               const fundCode = fund.fund_code || '';
-              return fundName.toLowerCase().includes(term) || 
+              return fundName.toLowerCase().includes(term) ||
                      fundCode.includes(term);
             });
             setFilteredFunds(filtered);
@@ -141,7 +126,7 @@ export default function About() {
           const filtered = fundsData.filter(fund => {
             const fundName = fund.fund_name || '';
             const fundCode = fund.fund_code || '';
-            return fundName.toLowerCase().includes(term) || 
+            return fundName.toLowerCase().includes(term) ||
                    fundCode.includes(term);
           });
           setFilteredFunds(filtered);
@@ -153,7 +138,7 @@ export default function About() {
         const filtered = fundsData.filter(fund => {
           const fundName = fund.fund_name || '';
           const fundCode = fund.fund_code || '';
-          return fundName.toLowerCase().includes(term) || 
+          return fundName.toLowerCase().includes(term) ||
                  fundCode.includes(term);
         });
         setFilteredFunds(filtered);
@@ -163,6 +148,12 @@ export default function About() {
         setLoading(false);
       }
     }
+  };
+
+  // 清空搜索
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setFilteredFunds(fundsData);
   };
 
   return (
@@ -209,10 +200,10 @@ export default function About() {
         </p>
 
         {/* 搜索表单 */}
-        <form onSubmit={handleSearch} style={{ 
-          margin: '40px 0', 
-          display: 'flex', 
-          gap: '1rem', 
+        <form onSubmit={handleSearch} style={{
+          margin: '40px 0',
+          display: 'flex',
+          gap: '1rem',
           justifyContent: 'center',
           flexWrap: 'wrap'
         }}>
@@ -221,26 +212,40 @@ export default function About() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="输入基金名称或代码"
-            style={{ 
-              padding: '0.75rem', 
-              borderRadius: '4px', 
-              border: '1px solid #ddd', 
+            style={{
+              padding: '0.75rem',
+              borderRadius: '4px',
+              border: '1px solid #ddd',
               width: '300px',
               backgroundColor: 'rgba(255, 255, 255, 0.9)'
             }}
           />
-          <button 
-            type="submit" 
-            style={{ 
-              padding: '0.75rem 1.5rem', 
-              borderRadius: '4px', 
-              border: 'none', 
-              backgroundColor: '#0070f3', 
-              color: 'white', 
+          <button
+            type="submit"
+            style={{
+              padding: '0.75rem 1.5rem',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: '#0070f3',
+              color: 'white',
               cursor: 'pointer'
             }}
           >
             搜索
+          </button>
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            style={{
+              padding: '0.75rem 1.5rem',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: '#666',
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            清空
           </button>
         </form>
 
@@ -251,17 +256,17 @@ export default function About() {
           {!loading && !error && (
             <div>
               <h2 style={{ marginBottom: '20px' }}>基金列表 ({filteredFunds.length} 个结果)</h2>
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
                 gap: '20px',
                 justifyContent: 'center'
               }}>
                 {filteredFunds.map((fund) => (
-                  <div key={fund.fund_code} style={{ 
-                    textAlign: 'left', 
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)', 
-                    padding: '20px', 
+                  <div key={fund.fund_code} style={{
+                    textAlign: 'left',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    padding: '20px',
                     borderRadius: '8px'
                   }}>
                     <h3 style={{ marginBottom: '15px', textAlign: 'center' }}>{fund.fund_name}</h3>
