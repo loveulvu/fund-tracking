@@ -1,0 +1,121 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  padding: 20px;
+}
+
+.formContainer {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 400px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 2rem;
+  text-align: center;
+  color: #64ffda;
+}
+
+.form {
+  margin-bottom: 2rem;
+}
+
+.inputGroup {
+  margin-bottom: 1.5rem;
+}
+
+.inputGroup label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+}
+
+.inputGroup input {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: white;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.inputGroup input:focus {
+  outline: none;
+  border-color: #64ffda;
+  box-shadow: 0 0 0 2px rgba(100, 255, 218, 0.2);
+}
+
+.button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(45deg, #64ffda, #4facfe);
+  color: #1a1a2e;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  font-size: 1rem;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(100, 255, 218, 0.3);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.switch {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+}
+
+.switchButton {
+  background: none;
+  border: none;
+  color: #64ffda;
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
+.switchButton:hover {
+  color: #4facfe;
+}
+
+.message {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  color: #64ffda;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .formContainer {
+    padding: 2rem;
+  }
+  
+  .title {
+    font-size: 1.5rem;
+  }
+}
