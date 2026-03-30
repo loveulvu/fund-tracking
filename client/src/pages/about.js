@@ -116,15 +116,52 @@ export default function About() {
         setLoading(false);
       }
     } else {
-      // 如果不是基金代码，只在已有数据中搜索
-      const term = searchTerm.toLowerCase();
-      const filtered = fundsData.filter(fund => {
-        const fundName = fund.fund_name || '';
-        const fundCode = fund.fund_code || '';
-        return fundName.toLowerCase().includes(term) || 
-               fundCode.includes(term);
-      });
-      setFilteredFunds(filtered);
+      // 如果不是基金代码，尝试从服务器搜索
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:3001/api/funds/search?query=${encodeURIComponent(searchTerm)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setFilteredFunds(data);
+          } else {
+            // 如果服务器返回的不是数组，在本地数据中搜索
+            const term = searchTerm.toLowerCase();
+            const filtered = fundsData.filter(fund => {
+              const fundName = fund.fund_name || '';
+              const fundCode = fund.fund_code || '';
+              return fundName.toLowerCase().includes(term) || 
+                     fundCode.includes(term);
+            });
+            setFilteredFunds(filtered);
+          }
+        } else {
+          // 如果服务器搜索失败，在本地数据中搜索
+          const term = searchTerm.toLowerCase();
+          const filtered = fundsData.filter(fund => {
+            const fundName = fund.fund_name || '';
+            const fundCode = fund.fund_code || '';
+            return fundName.toLowerCase().includes(term) || 
+                   fundCode.includes(term);
+          });
+          setFilteredFunds(filtered);
+        }
+        setError(null);
+      } catch (err) {
+        // 搜索失败，在本地数据中搜索
+        const term = searchTerm.toLowerCase();
+        const filtered = fundsData.filter(fund => {
+          const fundName = fund.fund_name || '';
+          const fundCode = fund.fund_code || '';
+          return fundName.toLowerCase().includes(term) || 
+                 fundCode.includes(term);
+        });
+        setFilteredFunds(filtered);
+        setError('搜索失败，显示本地数据');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
