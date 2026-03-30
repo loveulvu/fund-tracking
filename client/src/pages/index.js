@@ -13,7 +13,7 @@ export default function Home() {
   const navItems = [
     { label: 'Home', href: '/' },
     { label: 'Funds', href: '/about' },
-    { label: user ? '账户' : 'Login', href: user ? '/profile' : '/login' },
+    { label: user ? 'Account' : 'Login', href: user ? '/profile' : '/login' },
   ];
 
   // 模拟用户数据

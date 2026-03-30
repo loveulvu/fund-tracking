@@ -1,5 +1,6 @@
 import Particles from '../components/Particles';
 import Link from 'next/link';
+import PillNav from '../components/PillNav';
 import { useState, useEffect } from 'react';
 import styles from '../../styles/Home.module.css';
 
@@ -9,6 +10,21 @@ export default function About() {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredFunds, setFilteredFunds] = useState([]);
+  const [user, setUser] = useState(null);
+
+  // 导航项 - 只显示Home和Fund
+  const navItems = [
+    { label: 'Home', href: '/' },
+    { label: 'Funds', href: '/about' },
+  ];
+
+  // 检查用户登录状态
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+  }, []);
 
   // 获取所有基金数据
   useEffect(() => {
@@ -136,8 +152,18 @@ export default function About() {
         />
       </div>
 
+      {/* 导航栏 */}
+      <PillNav
+        items={navItems}
+        activeHref="/about"
+        baseColor="#000000"
+        pillColor="#ffffff"
+        hoveredPillTextColor="#ffffff"
+        pillTextColor="#000000"
+      />
+
       {/* 内容层，必须在粒子层上面 */}
-      <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 20px' }}>
+      <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 20px', paddingTop: '100px' }}>
         <h1 className={styles.title}>Fund Data</h1>
         <p>
           <Link href="/" className={styles.link}>

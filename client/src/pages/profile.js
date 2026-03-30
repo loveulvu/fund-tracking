@@ -12,7 +12,7 @@ export default function Profile() {
   const navItems = [
     { label: 'Home', href: '/' },
     { label: 'Funds', href: '/about' },
-    { label: '账户', href: '/profile' },
+    { label: 'Account', href: '/profile' },
   ];
 
   // 获取用户信息
