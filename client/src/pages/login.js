@@ -31,10 +31,15 @@ export default function Login() {
 
       if (response.ok) {
         if (isRegister) {
-          setMessage('注册成功！请检查邮箱获取验证码');
+          if (result.verificationCode) {
+            setMessage(`注册成功！邮件发送失败，但验证码是：${result.verificationCode}`);
+          } else {
+            setMessage('注册成功！请检查邮箱获取验证码');
+          }
         } else {
-          // 登录成功，保存用户信息
-          localStorage.setItem('user', JSON.stringify({ email }));
+          // 登录成功，保存token和用户信息
+          localStorage.setItem('token', result.token);
+          localStorage.setItem('user', JSON.stringify({ email: result.email }));
           window.location.href = '/';
         }
       } else {
