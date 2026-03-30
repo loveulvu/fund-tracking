@@ -28,7 +28,7 @@ const authMiddleware = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
-    
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.userId;
     next();
@@ -42,13 +42,13 @@ const sendEmail = async (to, subject, text) => {
   console.log('Attempting to send email to:', to);
   console.log('Email subject:', subject);
   console.log('Email content:', text);
-  
+
   // 检查环境变量
   if (!process.env.EMAIL_SERVICE || !process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
     console.error('Email configuration missing');
     throw new Error('Email configuration not set');
   }
-  
+
   const transporter = nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
     auth: {
@@ -83,17 +83,17 @@ const generateVerificationCode = () => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     // 检查用户是否已存在
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
-    
+
     // 生成验证码
     const verificationCode = generateVerificationCode();
     const verificationCodeExpires = new Date(Date.now() + 10 * 60 * 1000); // 10分钟过期
-    
+
     // 发送验证码邮件
     try {
       await sendEmail(
@@ -102,7 +102,7 @@ app.post('/api/auth/register', async (req, res) => {
         `您的验证码是：${verificationCode}，10分钟内有效。`
       );
       // 邮件发送成功，返回验证码信息（不创建用户）
-      res.json({ 
+      res.json({
         message: 'Verification code sent. Please check your email and verify your account.',
         email,
         verificationCode // 为了测试方便，返回验证码
@@ -110,10 +110,10 @@ app.post('/api/auth/register', async (req, res) => {
     } catch (emailError) {
       console.error('Email sending error:', emailError);
       // 邮件发送失败，返回验证码
-      res.json({ 
+      res.json({
         message: 'Email sending failed, but here is your verification code:',
         email,
-        verificationCode 
+        verificationCode
       });
     }
   } catch (error) {
@@ -126,7 +126,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/verify', async (req, res) => {
   try {
     const { email, code, password } = req.body;
-    
+
     // 检查用户是否已存在（可能是之前验证过的）
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -168,23 +168,23 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    
+
     if (!user.isVerified) {
       return res.status(401).json({ error: 'Please verify your email first' });
     }
-    
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    
+
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    
+
     res.json({ token, email: user.email });
   } catch (error) {
     console.error('Login error:', error);
@@ -207,20 +207,67 @@ app.get('/api/funds/all', async (req, res) => {
   }
 });
 
-// 获取单个基金
+// 获取单个基金 - 支持从天天基金网实时获取
 app.get('/api/fund/:fundCode', async (req, res) => {
   try {
     const { fundCode } = req.params;
+
+    // 先在本地文件中查找
     const fundsPath = path.join(__dirname, '../python/funds.json');
     const data = fs.readFileSync(fundsPath, 'utf-8');
     const funds = JSON.parse(data);
     const fund = funds.find(f => f.fund_code === fundCode);
-    
-    if (!fund) {
-      return res.status(404).json({ error: 'Fund not found' });
+
+    if (fund) {
+      return res.json(fund);
     }
-    
-    res.json(fund);
+
+    // 本地没有，从天天基金网获取
+    console.log(`Fund ${fundCode} not found locally, fetching from eastmoney...`);
+
+    const pythonScriptPath = path.join(__dirname, '../python/1.py');
+    const pythonCwd = path.join(__dirname, '../python');
+
+    const pythonProcess = spawn('python', [pythonScriptPath, fundCode], { cwd: pythonCwd });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error('Python script error:', stderr);
+        return res.status(404).json({ error: 'Fund not found' });
+      }
+
+      const match = stdout.match(/FUND_JSON:(.+)/);
+      if (match) {
+        const tempFile = match[1].trim();
+        const tempFilePath = path.join(pythonCwd, tempFile);
+
+        try {
+          const fundData = fs.readFileSync(tempFilePath, 'utf-8');
+          const fundInfo = JSON.parse(fundData);
+
+          // 清理临时文件
+          fs.unlinkSync(tempFilePath);
+
+          res.json(fundInfo);
+        } catch (err) {
+          console.error('Error reading fund data:', err);
+          res.status(500).json({ error: 'Failed to load fund data' });
+        }
+      } else {
+        res.status(404).json({ error: 'Fund not found' });
+      }
+    });
   } catch (error) {
     console.error('Error loading fund:', error);
     res.status(500).json({ error: 'Failed to load fund' });
@@ -234,18 +281,18 @@ app.get('/api/funds/search', async (req, res) => {
     if (!query) {
       return res.status(400).json({ error: 'Search query required' });
     }
-    
+
     const fundsPath = path.join(__dirname, '../python/funds.json');
     const data = fs.readFileSync(fundsPath, 'utf-8');
     const funds = JSON.parse(data);
-    
+
     const filtered = funds.filter(fund => {
       const fundName = fund.fund_name || '';
       const fundCode = fund.fund_code || '';
-      return fundName.toLowerCase().includes(query.toLowerCase()) || 
+      return fundName.toLowerCase().includes(query.toLowerCase()) ||
              fundCode.includes(query);
     });
-    
+
     res.json(filtered);
   } catch (error) {
     console.error('Error searching funds:', error);
@@ -270,14 +317,14 @@ app.get('/api/watchlist', authMiddleware, async (req, res) => {
 app.post('/api/watchlist', authMiddleware, async (req, res) => {
   try {
     const { fundCode, fundName, alertThreshold } = req.body;
-    
+
     const watchlistItem = new Watchlist({
       userId: req.userId,
       fundCode,
       fundName,
       alertThreshold: alertThreshold || 5
     });
-    
+
     await watchlistItem.save();
     res.json(watchlistItem);
   } catch (error) {
@@ -306,17 +353,17 @@ app.put('/api/watchlist/:fundCode', authMiddleware, async (req, res) => {
   try {
     const { fundCode } = req.params;
     const { alertThreshold } = req.body;
-    
+
     const watchlistItem = await Watchlist.findOneAndUpdate(
       { userId: req.userId, fundCode },
       { alertThreshold },
       { new: true }
     );
-    
+
     if (!watchlistItem) {
       return res.status(404).json({ error: 'Fund not in watchlist' });
     }
-    
+
     res.json(watchlistItem);
   } catch (error) {
     console.error('Error updating watchlist:', error);
@@ -331,15 +378,15 @@ const fetchFundsData = () => {
   return new Promise((resolve, reject) => {
     const pythonScriptPath = path.join(__dirname, '../python/1.py');
     const pythonCwd = path.join(__dirname, '../python');
-    
+
     const pythonProcess = spawn('python', [pythonScriptPath, 'all'], { cwd: pythonCwd });
-    
+
     let stdout = '';
-    
+
     pythonProcess.stdout.on('data', (data) => {
       stdout += data.toString();
     });
-    
+
     pythonProcess.on('close', (code) => {
       if (code !== 0) {
         reject(new Error(`Python script exited with code ${code}`));
@@ -361,18 +408,18 @@ const checkAlerts = async () => {
     const fundsPath = path.join(__dirname, '../python/funds.json');
     const data = fs.readFileSync(fundsPath, 'utf-8');
     const funds = JSON.parse(data);
-    
+
     // 获取所有关注列表
     const watchlists = await Watchlist.find().populate('userId');
-    
+
     for (const watchlist of watchlists) {
       const fund = funds.find(f => f.fund_code === watchlist.fundCode);
       if (!fund) continue;
-      
+
       // 解析涨幅（去掉%符号）
       const profitStr = fund.one_month_profit || '0%';
       const profit = parseFloat(profitStr.replace('%', ''));
-      
+
       // 检查是否超过阈值
       if (profit >= watchlist.alertThreshold) {
         const user = watchlist.userId;
@@ -397,7 +444,7 @@ schedule.scheduleJob('*/30 * * * * *', async () => {
   try {
     await fetchFundsData();
     console.log('Funds data updated');
-    
+
     // 检查提醒
     await checkAlerts();
   } catch (error) {
