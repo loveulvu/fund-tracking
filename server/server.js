@@ -227,6 +227,32 @@ app.get('/api/fund/:fundCode', async (req, res) => {
   }
 });
 
+// 搜索基金
+app.get('/api/funds/search', async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(400).json({ error: 'Search query required' });
+    }
+    
+    const fundsPath = path.join(__dirname, '../python/funds.json');
+    const data = fs.readFileSync(fundsPath, 'utf-8');
+    const funds = JSON.parse(data);
+    
+    const filtered = funds.filter(fund => {
+      const fundName = fund.fund_name || '';
+      const fundCode = fund.fund_code || '';
+      return fundName.toLowerCase().includes(query.toLowerCase()) || 
+             fundCode.includes(query);
+    });
+    
+    res.json(filtered);
+  } catch (error) {
+    console.error('Error searching funds:', error);
+    res.status(500).json({ error: 'Failed to search funds' });
+  }
+});
+
 // ============ 关注列表API ============
 
 // 获取用户的关注列表
