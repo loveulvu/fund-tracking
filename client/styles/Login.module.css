@@ -3,7 +3,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #0d0d0d 100%);
   padding: 20px;
 }
 
@@ -24,7 +24,7 @@
   font-weight: bold;
   margin-bottom: 2rem;
   text-align: center;
-  color: #64ffda;
+  color: #ffffff;
 }
 
 .form {
@@ -55,15 +55,15 @@
 
 .inputGroup input:focus {
   outline: none;
-  border-color: #64ffda;
-  box-shadow: 0 0 0 2px rgba(100, 255, 218, 0.2);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
 }
 
 .button {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(45deg, #64ffda, #4facfe);
-  color: #1a1a2e;
+  background: linear-gradient(45deg, #ffffff, #e0e0e0);
+  color: #0a0a0a;
   font-weight: bold;
   border: none;
   border-radius: 8px;
@@ -74,7 +74,7 @@
 
 .button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(100, 255, 218, 0.3);
+  box-shadow: 0 5px 15px rgba(255, 255, 255, 0.3);
 }
 
 .button:disabled {
@@ -91,14 +91,14 @@
 .switchButton {
   background: none;
   border: none;
-  color: #64ffda;
+  color: #ffffff;
   cursor: pointer;
   font-size: 0.9rem;
   text-decoration: underline;
 }
 
 .switchButton:hover {
-  color: #4facfe;
+  color: #e0e0e0;
 }
 
 .message {
@@ -106,7 +106,7 @@
   padding: 12px;
   border-radius: 8px;
   margin-bottom: 1.5rem;
-  color: #64ffda;
+  color: #ffffff;
   text-align: center;
 }
 

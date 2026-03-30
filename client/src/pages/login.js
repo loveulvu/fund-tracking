@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import styles from '../../styles/Login.module.css';
+import PillNav from '../components/PillNav';
 
 export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
@@ -79,6 +80,18 @@ export default function Login() {
 
   return (
     <div className={styles.container}>
+      <PillNav 
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Login', href: '/login' }
+        ]} 
+        activeHref="/login"
+        baseColor="#000000"
+        pillColor="#ffffff"
+        hoveredPillTextColor="#ffffff"
+        pillTextColor="#000000"
+        theme="light"
+      />
       <div className={styles.formContainer}>
         <h1 className={styles.title}>{isRegister ? '注册' : '登录'}</h1>
         
