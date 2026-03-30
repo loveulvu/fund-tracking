@@ -12,10 +12,10 @@ export default function About() {
   const [filteredFunds, setFilteredFunds] = useState([]);
   const [user, setUser] = useState(null);
 
-  // 导航项 - 只显示Home和Fund
+  // 导航项 - 只显示Home和Account
   const navItems = [
     { label: 'Home', href: '/' },
-    { label: 'Funds', href: '/about' },
+    { label: user ? 'Account' : 'Login', href: user ? '/profile' : '/login' },
   ];
 
   // 检查用户登录状态
@@ -155,7 +155,7 @@ export default function About() {
       {/* 导航栏 */}
       <PillNav
         items={navItems}
-        activeHref="/about"
+        activeHref="/"
         baseColor="#000000"
         pillColor="#ffffff"
         hoveredPillTextColor="#ffffff"
