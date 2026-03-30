@@ -31,10 +31,12 @@ export default function Login() {
 
       if (response.ok) {
         if (isRegister) {
-          if (result.verificationCode) {
+          if (result.emailSent) {
+            setMessage('验证码已发送！请检查邮箱获取验证码');
+          } else if (result.verificationCode) {
             setMessage(`验证码已生成！邮件发送失败，但验证码是：${result.verificationCode}`);
           } else {
-            setMessage('验证码已发送！请检查邮箱获取验证码');
+            setMessage('注册成功！请检查邮箱获取验证码');
           }
         } else {
           // 登录成功，保存token和用户信息

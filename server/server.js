@@ -101,11 +101,11 @@ app.post('/api/auth/register', async (req, res) => {
         '验证您的邮箱',
         `您的验证码是：${verificationCode}，10分钟内有效。`
       );
-      // 邮件发送成功，返回验证码信息（不创建用户）
+      // 邮件发送成功
       res.json({
         message: 'Verification code sent. Please check your email and verify your account.',
         email,
-        verificationCode // 为了测试方便，返回验证码
+        emailSent: true
       });
     } catch (emailError) {
       console.error('Email sending error:', emailError);
@@ -113,7 +113,8 @@ app.post('/api/auth/register', async (req, res) => {
       res.json({
         message: 'Email sending failed, but here is your verification code:',
         email,
-        verificationCode
+        verificationCode,
+        emailSent: false
       });
     }
   } catch (error) {

@@ -83,16 +83,8 @@ export default function About() {
           throw new Error('Invalid fund data received');
         }
 
-        // 检查该基金是否已在列表中
-        const exists = fundsData.some(fund => fund.fund_code === data.fund_code);
-        if (!exists) {
-          // 如果不在列表中，添加到列表
-          const updatedFunds = [...fundsData, data];
-          setFilteredFunds(updatedFunds);
-        } else {
-          // 如果在列表中，只显示该基金
-          setFilteredFunds([data]);
-        }
+        // 只显示搜索到的基金
+        setFilteredFunds([data]);
         setError(null);
       } catch (err) {
         setError('Error fetching fund data: ' + err.message);
