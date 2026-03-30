@@ -40,7 +40,7 @@ export default function Login() {
           // 登录成功，保存token和用户信息
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify({ email: result.email }));
-          window.location.href = '/';
+          window.location.href = '/profile';
         }
       } else {
         setMessage(result.error || '操作失败');
