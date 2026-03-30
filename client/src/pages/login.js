@@ -88,9 +88,9 @@ export default function Login() {
       <PillNav 
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Login', href: '/login' }
+          { label: 'Funds', href: '/about' }
         ]} 
-        activeHref="/login"
+        activeHref="/"
         baseColor="#000000"
         pillColor="#ffffff"
         hoveredPillTextColor="#ffffff"
