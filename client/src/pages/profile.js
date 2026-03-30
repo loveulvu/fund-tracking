@@ -8,11 +8,10 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // 导航项
+  // 导航项 - 移除Account选项
   const navItems = [
     { label: 'Home', href: '/' },
     { label: 'Funds', href: '/about' },
-    { label: 'Account', href: '/profile' },
   ];
 
   // 获取用户信息
@@ -85,7 +84,7 @@ export default function Profile() {
       {/* 导航栏 */}
       <PillNav
         items={navItems}
-        activeHref="/profile"
+        activeHref="/"
         baseColor="#000000"
         pillColor="#ffffff"
         hoveredPillTextColor="#ffffff"
