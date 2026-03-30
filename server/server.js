@@ -86,14 +86,22 @@ app.post('/api/auth/register', async (req, res) => {
     });
     await user.save();
     
-    // 发送验证码邮件
-    await sendEmail(
-      email,
-      '验证您的邮箱',
-      `您的验证码是：${verificationCode}，10分钟内有效。`
-    );
-    
-    res.json({ message: 'Registration successful. Please check your email for verification code.' });
+    // 发送验证码邮件（失败不影响注册）
+    try {
+      await sendEmail(
+        email,
+        '验证您的邮箱',
+        `您的验证码是：${verificationCode}，10分钟内有效。`
+      );
+      res.json({ message: 'Registration successful. Please check your email for verification code.' });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      // 邮件发送失败但注册成功，返回验证码
+      res.json({ 
+        message: 'Registration successful. Email sending failed, but here is your verification code:',
+        verificationCode 
+      });
+    }
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
