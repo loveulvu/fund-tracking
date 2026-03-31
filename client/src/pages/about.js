@@ -34,7 +34,7 @@ export default function About() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/watchlist', {
+      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
         headers: {
           'Authorization': `Bearer ${token}`
         }

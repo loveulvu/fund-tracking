@@ -19,7 +19,7 @@ export default function Login() {
       const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
       const data = isRegister ? { email, password } : { email, password };
 
-      const response = await fetch(`http://localhost:3001${endpoint}`, {
+      const response = await fetch(`https://fund-tracking-production.up.railway.app${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

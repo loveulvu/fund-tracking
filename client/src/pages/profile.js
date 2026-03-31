@@ -39,7 +39,7 @@ export default function Profile() {
           throw new Error('No token found');
         }
 
-        const response = await fetch('http://localhost:3001/api/watchlist', {
+        const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
