@@ -77,40 +77,32 @@ def get_fund_info(fund_code):
             print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
-            detail_url = f"http://fund.eastmoney.com/f10/jbgk_{fund_code}.html"
-            response = requests.get(detail_url, headers=headers, timeout=3)
+            rate_api_url = f"http://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=all&rs=&gs=0&sc=zzf&st=desc&sd=2020-01-01&ed=2026-12-31&qdii=&tabSubtype=,,,,,&pi=1&pn=50&dx=1"
+            response = requests.get(rate_api_url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
             
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            tables = soup.find_all('table')
-            for table in tables:
-                rows = table.find_all('tr')
-                for row in rows:
-                    tds = row.find_all('td')
-                    if len(tds) >= 2:
-                        label = tds[0].text.strip()
-                        value = tds[1].text.strip().replace('%', '')
-                        
-                        try:
-                            if '近1周' in label:
-                                data_item['week_growth'] = float(value)
-                            elif '近1月' in label:
-                                data_item['month_growth'] = float(value)
-                            elif '近3月' in label:
-                                data_item['three_month_growth'] = float(value)
-                            elif '近6月' in label:
-                                data_item['six_month_growth'] = float(value)
-                            elif '近1年' in label:
-                                data_item['year_growth'] = float(value)
-                            elif '近3年' in label:
-                                data_item['three_year_growth'] = float(value)
-                        except:
-                            pass
-            
-            print(f"[{fund_code}] 从详情页获取收益数据成功")
+            text = response.text
+            if fund_code in text:
+                import re
+                pattern = f'{fund_code}.*?'
+                match = re.search(rf'{fund_code}.*?"(.*?)"', text)
+                if match:
+                    parts = text.split(fund_code)
+                    if len(parts) > 1:
+                        data_parts = parts[1].split(',')
+                        if len(data_parts) > 10:
+                            try:
+                                data_item['week_growth'] = float(data_parts[3].replace('"', ''))
+                                data_item['month_growth'] = float(data_parts[4].replace('"', ''))
+                                data_item['three_month_growth'] = float(data_parts[5].replace('"', ''))
+                                data_item['six_month_growth'] = float(data_parts[6].replace('"', ''))
+                                data_item['year_growth'] = float(data_parts[7].replace('"', ''))
+                                data_item['three_year_growth'] = float(data_parts[8].replace('"', ''))
+                                print(f"[{fund_code}] 从排名接口获取收益数据成功")
+                            except Exception as e:
+                                print(f"[{fund_code}] 解析收益数据失败: {str(e)}")
         except Exception as e:
-            print(f"[{fund_code}] 详情页获取失败: {str(e)}")
+            print(f"[{fund_code}] 排名接口获取失败: {str(e)}")
         
         if 'fund_name' not in data_item:
             url = f"https://fund.eastmoney.com/{fund_code}.html"
