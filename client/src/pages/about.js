@@ -11,6 +11,8 @@ export default function About() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredFunds, setFilteredFunds] = useState([]);
   const [user, setUser] = useState(null);
+  const [watchlist, setWatchlist] = useState([]);
+  const [watchlistLoading, setWatchlistLoading] = useState({});
 
   // 导航项 - 只显示Home和Account
   const navItems = [
@@ -25,6 +27,107 @@ export default function About() {
       setUser(JSON.parse(savedUser));
     }
   }, []);
+
+  // 获取关注列表
+  const fetchWatchlist = async () => {
+    if (!user) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/watchlist', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setWatchlist(data);
+      }
+    } catch (err) {
+      console.error('Error fetching watchlist:', err);
+    }
+  };
+
+  // 用户登录后获取关注列表
+  useEffect(() => {
+    if (user) {
+      fetchWatchlist();
+    }
+  }, [user]);
+
+  // 检查基金是否已关注
+  const isWatched = (fundCode) => {
+    return watchlist.some(item => item.fundCode === fundCode);
+  };
+
+  // 关注基金
+  const handleWatch = async (fund) => {
+    if (!user) {
+      alert('请先登录');
+      return;
+    }
+
+    const fundCode = fund.fund_code;
+    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/watchlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          fundCode: fundCode,
+          fundName: fund.fund_name,
+          alertThreshold: 5
+        })
+      });
+
+      if (response.ok) {
+        await fetchWatchlist();
+      } else {
+        const data = await response.json();
+        alert(data.error || '关注失败');
+      }
+    } catch (err) {
+      console.error('Error adding to watchlist:', err);
+      alert('关注失败');
+    } finally {
+      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+    }
+  };
+
+  // 取消关注
+  const handleUnwatch = async (fundCode) => {
+    if (!user) return;
+
+    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/watchlist/${fundCode}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        await fetchWatchlist();
+      } else {
+        const data = await response.json();
+        alert(data.error || '取消关注失败');
+      }
+    } catch (err) {
+      console.error('Error removing from watchlist:', err);
+      alert('取消关注失败');
+    } finally {
+      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+    }
+  };
 
   // 获取所有基金数据
   useEffect(() => {
@@ -280,6 +383,58 @@ export default function About() {
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1年收益</span>
                         <span style={{ fontSize: '1.1rem', fontWeight: '300' }}>{fund.one_year_profit}</span>
                       </div>
+                    </div>
+                    {/* 关注按钮 */}
+                    <div style={{ marginTop: '15px', textAlign: 'center' }}>
+                      {user ? (
+                        isWatched(fund.fund_code) ? (
+                          <button
+                            onClick={() => handleUnwatch(fund.fund_code)}
+                            disabled={watchlistLoading[fund.fund_code]}
+                            style={{
+                              padding: '8px 20px',
+                              borderRadius: '4px',
+                              border: 'none',
+                              backgroundColor: '#ff4444',
+                              color: 'white',
+                              cursor: watchlistLoading[fund.fund_code] ? 'not-allowed' : 'pointer',
+                              opacity: watchlistLoading[fund.fund_code] ? 0.6 : 1
+                            }}
+                          >
+                            {watchlistLoading[fund.fund_code] ? '处理中...' : '取消关注'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleWatch(fund)}
+                            disabled={watchlistLoading[fund.fund_code]}
+                            style={{
+                              padding: '8px 20px',
+                              borderRadius: '4px',
+                              border: 'none',
+                              backgroundColor: '#4CAF50',
+                              color: 'white',
+                              cursor: watchlistLoading[fund.fund_code] ? 'not-allowed' : 'pointer',
+                              opacity: watchlistLoading[fund.fund_code] ? 0.6 : 1
+                            }}
+                          >
+                            {watchlistLoading[fund.fund_code] ? '处理中...' : '关注'}
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => alert('请先登录')}
+                          style={{
+                            padding: '8px 20px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: '#666',
+                            color: 'white',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          登录后关注
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
