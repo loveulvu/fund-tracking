@@ -77,38 +77,40 @@ def get_fund_info(fund_code):
             print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
-            rate_url = f"http://fundf10.eastmoney.com/FundArchivesDataService.aspx?type=jjfx&code={fund_code}"
-            response = requests.get(rate_url, headers=headers, timeout=3)
+            detail_url = f"http://fund.eastmoney.com/f10/jbgk_{fund_code}.html"
+            response = requests.get(detail_url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            rows = soup.find_all('tr')
-            for row in rows:
-                tds = row.find_all('td')
-                if len(tds) >= 2:
-                    label = tds[0].text.strip()
-                    value = tds[1].text.strip().replace('%', '')
-                    
-                    try:
-                        if '近1周' in label:
-                            data_item['week_growth'] = float(value)
-                        elif '近1月' in label:
-                            data_item['month_growth'] = float(value)
-                        elif '近3月' in label:
-                            data_item['three_month_growth'] = float(value)
-                        elif '近6月' in label:
-                            data_item['six_month_growth'] = float(value)
-                        elif '近1年' in label:
-                            data_item['year_growth'] = float(value)
-                        elif '近3年' in label:
-                            data_item['three_year_growth'] = float(value)
-                    except:
-                        pass
+            tables = soup.find_all('table')
+            for table in tables:
+                rows = table.find_all('tr')
+                for row in rows:
+                    tds = row.find_all('td')
+                    if len(tds) >= 2:
+                        label = tds[0].text.strip()
+                        value = tds[1].text.strip().replace('%', '')
+                        
+                        try:
+                            if '近1周' in label:
+                                data_item['week_growth'] = float(value)
+                            elif '近1月' in label:
+                                data_item['month_growth'] = float(value)
+                            elif '近3月' in label:
+                                data_item['three_month_growth'] = float(value)
+                            elif '近6月' in label:
+                                data_item['six_month_growth'] = float(value)
+                            elif '近1年' in label:
+                                data_item['year_growth'] = float(value)
+                            elif '近3年' in label:
+                                data_item['three_year_growth'] = float(value)
+                        except:
+                            pass
             
-            print(f"[{fund_code}] 从收益接口获取成功")
+            print(f"[{fund_code}] 从详情页获取收益数据成功")
         except Exception as e:
-            print(f"[{fund_code}] 收益接口获取失败: {str(e)}")
+            print(f"[{fund_code}] 详情页获取失败: {str(e)}")
         
         if 'fund_name' not in data_item:
             url = f"https://fund.eastmoney.com/{fund_code}.html"
