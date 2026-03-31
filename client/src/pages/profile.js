@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import PillNav from '../components/PillNav';
 import styles from '../../styles/Home.module.css';
+import api from '../lib/api';
 
 export default function Profile() {
   const [user, setUser] = useState(null);
@@ -39,13 +40,7 @@ export default function Profile() {
           throw new Error('No token found');
         }
 
-        const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-        });
+        const response = await api.getWatchlist(token);
 
         if (response.ok) {
           const data = await response.json();
@@ -72,7 +67,7 @@ export default function Profile() {
   // 获取单个基金的实时数据
   const fetchFundData = async (fundCode) => {
     try {
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/fund/${fundCode}`);
+      const response = await api.getFund(fundCode);
       if (response.ok) {
         const data = await response.json();
         setFundData(prev => ({
@@ -89,12 +84,7 @@ export default function Profile() {
   const handleUnwatch = async (fundCode) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await api.removeFromWatchlist(token, fundCode);
 
       if (response.ok) {
         setWatchlist(watchlist.filter(item => item.fundCode !== fundCode));
@@ -122,14 +112,7 @@ export default function Profile() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ alertThreshold: parseFloat(newThreshold) })
-      });
+      const response = await api.updateWatchlistThreshold(token, fundCode, parseFloat(newThreshold));
 
       if (response.ok) {
         const updatedItem = await response.json();

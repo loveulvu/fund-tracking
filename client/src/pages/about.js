@@ -3,6 +3,7 @@ import Link from 'next/link';
 import PillNav from '../components/PillNav';
 import { useState, useEffect } from 'react';
 import styles from '../../styles/Home.module.css';
+import api from '../lib/api';
 
 export default function About() {
   const [fundsData, setFundsData] = useState([]);
@@ -34,11 +35,7 @@ export default function About() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await api.getWatchlist(token);
       
       if (response.ok) {
         const data = await response.json();
@@ -73,17 +70,10 @@ export default function About() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          fundCode: fundCode,
-          fundName: fund.fund_name,
-          alertThreshold: 5
-        })
+      const response = await api.addToWatchlist(token, {
+        fundCode: fundCode,
+        fundName: fund.fund_name,
+        alertThreshold: 5
       });
 
       if (response.ok) {
@@ -108,12 +98,7 @@ export default function About() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await api.removeFromWatchlist(token, fundCode);
 
       if (response.ok) {
         await fetchWatchlist();
@@ -134,7 +119,7 @@ export default function About() {
     const fetchFundsData = async () => {
       try {
         setLoading(true);
-        const response = await fetch('https://fund-tracking-production.up.railway.app/api/funds');
+        const response = await api.getFunds();
         if (!response.ok) {
           throw new Error(`Failed to fetch funds data: ${response.status}`);
         }
@@ -175,7 +160,7 @@ export default function About() {
       // 如果是基金代码，尝试直接获取该基金数据
       try {
         setLoading(true);
-        const response = await fetch(`https://fund-tracking-production.up.railway.app/api/fund/${searchTerm}`);
+        const response = await api.getFund(searchTerm);
         if (!response.ok) {
           throw new Error('Failed to fetch fund data');
         }
@@ -199,7 +184,7 @@ export default function About() {
       // 如果不是基金代码，尝试从服务器搜索
       try {
         setLoading(true);
-        const response = await fetch(`https://fund-tracking-production.up.railway.app/api/funds/search?query=${encodeURIComponent(searchTerm)}`);
+        const response = await api.searchFunds(searchTerm);
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data) && data.length > 0) {

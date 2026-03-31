@@ -3,6 +3,7 @@ import Link from 'next/link';
 import PillNav from '../components/PillNav';
 import styles from '../../styles/Home.module.css';
 import { useState, useEffect } from 'react';
+import api from '../lib/api';
 
 export default function Home() {
   const [funds, setFunds] = useState([]);
@@ -32,13 +33,7 @@ export default function Home() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
         
-        const response = await fetch('https://fund-tracking-production.up.railway.app/api/funds', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal
-        });
+        const response = await api.getFunds();
         
         clearTimeout(timeoutId);
         

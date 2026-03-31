@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import styles from '../../styles/Login.module.css';
 import PillNav from '../components/PillNav';
+import api from '../lib/api';
 
 export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
@@ -16,16 +17,9 @@ export default function Login() {
     setMessage('');
 
     try {
-      const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
-      const data = isRegister ? { email, password } : { email, password };
-
-      const response = await fetch(`https://fund-tracking-production.up.railway.app${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
+      const response = isRegister 
+        ? await api.register(email, password)
+        : await api.login(email, password);
 
       const result = await response.json();
 
@@ -61,13 +55,7 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = await fetch('https://fund-tracking-production.up.railway.app/api/auth/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, code: verificationCode, password }),
-      });
+      const response = await api.verifyEmail(email, verificationCode, password);
 
       const result = await response.json();
 
