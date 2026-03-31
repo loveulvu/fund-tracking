@@ -366,22 +366,54 @@ export default function About() {
                   }}>
                     <h3 style={{ marginBottom: '15px', textAlign: 'center' }}>{fund.fund_name}</h3>
                     <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>基金代码: {fund.fund_code}</p>
+                    {fund.net_value && (
+                      <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>
+                        单位净值: {fund.net_value} {fund.net_value_date && `(${fund.net_value_date})`}
+                      </p>
+                    )}
+                    {fund.day_growth !== undefined && (
+                      <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>
+                        日涨跌幅: <span style={{ color: fund.day_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.day_growth >= 0 ? '+' : ''}{fund.day_growth}%
+                        </span>
+                      </p>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '15px' }}>
                       <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
+                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1周收益</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.week_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.week_growth !== undefined ? `${fund.week_growth >= 0 ? '+' : ''}${fund.week_growth}%` : '-'}
+                        </span>
+                      </div>
+                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300' }}>{fund.one_month_profit}</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.month_growth !== undefined ? `${fund.month_growth >= 0 ? '+' : ''}${fund.month_growth}%` : '-'}
+                        </span>
                       </div>
                       <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近3月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300' }}>{fund.three_month_profit}</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.three_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.three_month_growth !== undefined ? `${fund.three_month_growth >= 0 ? '+' : ''}${fund.three_month_growth}%` : '-'}
+                        </span>
                       </div>
                       <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近6月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300' }}>{fund.six_month_profit}</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.six_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.six_month_growth !== undefined ? `${fund.six_month_growth >= 0 ? '+' : ''}${fund.six_month_growth}%` : '-'}
+                        </span>
                       </div>
                       <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1年收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300' }}>{fund.one_year_profit}</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.year_growth !== undefined ? `${fund.year_growth >= 0 ? '+' : ''}${fund.year_growth}%` : '-'}
+                        </span>
+                      </div>
+                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
+                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近3年收益</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.three_year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
+                          {fund.three_year_growth !== undefined ? `${fund.three_year_growth >= 0 ? '+' : ''}${fund.three_year_growth}%` : '-'}
+                        </span>
                       </div>
                     </div>
                     {/* 关注按钮 */}
