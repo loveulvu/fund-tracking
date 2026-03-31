@@ -28,124 +28,30 @@ export default function Profile() {
     }
   }, []);
 
-  // 获取关注列表
+  // 暂时禁用关注功能，后端 API 未实现
   useEffect(() => {
-    const fetchWatchlist = async () => {
-      if (!user) return;
-
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          throw new Error('No token found');
-        }
-
-        const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setWatchlist(data);
-
-          // 获取每个基金的实时数据
-          for (const item of data) {
-            fetchFundData(item.fundCode);
-          }
-        } else {
-          throw new Error('Failed to fetch watchlist');
-        }
-      } catch (err) {
-        setError('无法获取关注列表');
-        console.error('Error fetching watchlist:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchWatchlist();
+    // 后端 API 未实现，暂时返回空数组
+    setWatchlist([]);
+    setLoading(false);
   }, [user]);
 
-  // 获取单个基金的实时数据
+  // 暂时禁用获取基金数据功能
   const fetchFundData = async (fundCode) => {
-    try {
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/fund/${fundCode}`);
-      if (response.ok) {
-        const data = await response.json();
-        setFundData(prev => ({
-          ...prev,
-          [fundCode]: data
-        }));
-      }
-    } catch (err) {
-      console.error('Error fetching fund data:', err);
-    }
+    // 后端 API 未实现
   };
 
-  // 取消关注
+  // 暂时禁用取消关注功能，后端 API 未实现
   const handleUnwatch = async (fundCode) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        setWatchlist(watchlist.filter(item => item.fundCode !== fundCode));
-        setFundData(prev => {
-          const newData = { ...prev };
-          delete newData[fundCode];
-          return newData;
-        });
-      } else {
-        const data = await response.json();
-        alert(data.error || '取消关注失败');
-      }
-    } catch (err) {
-      console.error('Error removing from watchlist:', err);
-      alert('取消关注失败');
-    }
+    alert('取消关注功能暂未实现');
   };
 
-  // 更新提醒阈值
+  // 暂时禁用更新阈值功能，后端 API 未实现
   const handleUpdateThreshold = async (fundCode) => {
     if (!newThreshold || isNaN(newThreshold)) {
       alert('请输入有效的阈值');
       return;
     }
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ alertThreshold: parseFloat(newThreshold) })
-      });
-
-      if (response.ok) {
-        const updatedItem = await response.json();
-        setWatchlist(watchlist.map(item => 
-          item.fundCode === fundCode ? updatedItem : item
-        ));
-        setEditingThreshold(null);
-        setNewThreshold('');
-      } else {
-        const data = await response.json();
-        alert(data.error || '更新失败');
-      }
-    } catch (err) {
-      console.error('Error updating threshold:', err);
-      alert('更新失败');
-    }
+    alert('更新阈值功能暂未实现');
   };
 
   // 退出登录
