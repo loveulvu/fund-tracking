@@ -77,41 +77,14 @@ def get_fund_info(fund_code):
             print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
-            rate_api_url = f"http://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=all&rs=&gs=0&sc=zzf&st=desc&sd=2020-01-01&ed=2026-12-31&qdii=&tabSubtype=,,,,,&pi=1&pn=50&dx=1"
-            response = requests.get(rate_api_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            
-            text = response.text
-            if fund_code in text:
-                import re
-                pattern = f'{fund_code}.*?'
-                match = re.search(rf'{fund_code}.*?"(.*?)"', text)
-                if match:
-                    parts = text.split(fund_code)
-                    if len(parts) > 1:
-                        data_parts = parts[1].split(',')
-                        if len(data_parts) > 10:
-                            try:
-                                data_item['week_growth'] = float(data_parts[3].replace('"', ''))
-                                data_item['month_growth'] = float(data_parts[4].replace('"', ''))
-                                data_item['three_month_growth'] = float(data_parts[5].replace('"', ''))
-                                data_item['six_month_growth'] = float(data_parts[6].replace('"', ''))
-                                data_item['year_growth'] = float(data_parts[7].replace('"', ''))
-                                data_item['three_year_growth'] = float(data_parts[8].replace('"', ''))
-                                print(f"[{fund_code}] 从排名接口获取收益数据成功")
-                            except Exception as e:
-                                print(f"[{fund_code}] 解析收益数据失败: {str(e)}")
-        except Exception as e:
-            print(f"[{fund_code}] 排名接口获取失败: {str(e)}")
-        
-        if 'fund_name' not in data_item:
             url = f"https://fund.eastmoney.com/{fund_code}.html"
             response = requests.get(url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            fund_name = soup.find('span', class_='funCur-FundName')
-            data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
+            if 'fund_name' not in data_item:
+                fund_name = soup.find('span', class_='funCur-FundName')
+                data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
             
             if 'net_value' not in data_item:
                 net_value_elem = soup.find('dl', class_='dataItem02')
@@ -134,6 +107,52 @@ def get_fund_info(fund_code):
                             data_item['day_growth'] = float(growth_text)
                         except:
                             pass
+            
+            data_items = soup.find_all('div', class_='dataOfFund')
+            for item in data_items:
+                labels = item.find_all('label')
+                for label in labels:
+                    text = label.text.strip()
+                    if '近1周' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['week_growth'] = float(value)
+                        except:
+                            pass
+                    elif '近1月' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['month_growth'] = float(value)
+                        except:
+                            pass
+                    elif '近3月' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['three_month_growth'] = float(value)
+                        except:
+                            pass
+                    elif '近6月' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['six_month_growth'] = float(value)
+                        except:
+                            pass
+                    elif '近1年' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['year_growth'] = float(value)
+                        except:
+                            pass
+                    elif '近3年' in text:
+                        try:
+                            value = label.find_next('span').text.strip().replace('%', '')
+                            data_item['three_year_growth'] = float(value)
+                        except:
+                            pass
+            
+            print(f"[{fund_code}] 从主页获取收益数据成功")
+        except Exception as e:
+            print(f"[{fund_code}] 主页获取失败: {str(e)}")
         
         print(f"[{fund_code}] 获取完成: {data_item.get('fund_name', '未知')}")
         return data_item
