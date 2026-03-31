@@ -267,9 +267,11 @@ def health():
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return jsonify({'status': 'ok'}), 200
+        
         token = None
         
-        # 从请求头获取 token
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
             if auth_header.startswith('Bearer '):
@@ -279,7 +281,6 @@ def token_required(f):
             return jsonify({'error': 'Token is missing'}), 401
         
         try:
-            # 验证 token
             data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
             current_user_id = data['userId']
         except jwt.ExpiredSignatureError:
@@ -295,14 +296,11 @@ def token_required(f):
 
 print("System: Loading Route /api/watchlist...")
 
-@app.route('/api/watchlist', methods=['GET', 'OPTIONS'])
+@app.route('/api/watchlist', methods=['GET'])
 @token_required
 def get_watchlist(current_user_id):
     """获取当前用户的关注列表"""
     print(f"[DEBUG] Received request: {request.method} {request.path}")
-    
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
     
     db_check = check_db_status()
     if db_check:
