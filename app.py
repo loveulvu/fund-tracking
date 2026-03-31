@@ -72,83 +72,76 @@ def get_fund_info(fund_code):
                 data_item['net_value_date'] = fund_data.get('jzrq', '')
                 data_item['day_growth'] = float(fund_data.get('gszzl', 0))
                 
-                print(f"[{fund_code}] 从 API 获取成功: {data_item['fund_name']}")
-                return data_item
+                print(f"[{fund_code}] 从 API 获取基本信息成功: {data_item['fund_name']}")
         except Exception as e:
-            print(f"[{fund_code}] API 获取失败: {str(e)}，尝试从网页获取")
-        
-        url = f"https://fund.eastmoney.com/{fund_code}.html"
-        response = requests.get(url, headers=headers, timeout=3)
-        response.encoding = 'utf-8'
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        fund_name = soup.find('span', class_='funCur-FundName')
-        data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
+            print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
-            net_value_elem = soup.find('dl', class_='dataItem02')
-            if net_value_elem:
-                net_value = net_value_elem.find('span', class_='ui-font-large')
-                if net_value:
-                    data_item['net_value'] = float(net_value.text.strip())
-                
-                net_value_date = net_value_elem.find('dt')
-                if net_value_date:
-                    data_item['net_value_date'] = net_value_date.text.strip()
+            rate_url = f"http://fundf10.eastmoney.com/FundArchivesDataService.aspx?type=jjfx&code={fund_code}"
+            response = requests.get(rate_url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
             
-            day_growth_elem = soup.find('dl', class_='dataItem03')
-            if day_growth_elem:
-                day_growth = day_growth_elem.find('span', class_='ui-font-large')
-                if day_growth:
-                    growth_text = day_growth.text.strip().replace('%', '')
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            rows = soup.find_all('tr')
+            for row in rows:
+                tds = row.find_all('td')
+                if len(tds) >= 2:
+                    label = tds[0].text.strip()
+                    value = tds[1].text.strip().replace('%', '')
+                    
                     try:
-                        data_item['day_growth'] = float(growth_text)
+                        if '近1周' in label:
+                            data_item['week_growth'] = float(value)
+                        elif '近1月' in label:
+                            data_item['month_growth'] = float(value)
+                        elif '近3月' in label:
+                            data_item['three_month_growth'] = float(value)
+                        elif '近6月' in label:
+                            data_item['six_month_growth'] = float(value)
+                        elif '近1年' in label:
+                            data_item['year_growth'] = float(value)
+                        elif '近3年' in label:
+                            data_item['three_year_growth'] = float(value)
                     except:
                         pass
             
-            data_items = soup.find_all('dl', class_='dataItem')
-            for item in data_items:
-                label = item.find('dt')
-                value = item.find('dd')
-                if label and value:
-                    label_text = label.text.strip()
-                    value_text = value.text.strip().replace('%', '')
-                    
-                    if '近1周' in label_text:
-                        try:
-                            data_item['week_growth'] = float(value_text)
-                        except:
-                            pass
-                    elif '近1月' in label_text:
-                        try:
-                            data_item['month_growth'] = float(value_text)
-                        except:
-                            pass
-                    elif '近3月' in label_text:
-                        try:
-                            data_item['three_month_growth'] = float(value_text)
-                        except:
-                            pass
-                    elif '近6月' in label_text:
-                        try:
-                            data_item['six_month_growth'] = float(value_text)
-                        except:
-                            pass
-                    elif '近1年' in label_text:
-                        try:
-                            data_item['year_growth'] = float(value_text)
-                        except:
-                            pass
-                    elif '近3年' in label_text:
-                        try:
-                            data_item['three_year_growth'] = float(value_text)
-                        except:
-                            pass
-        
+            print(f"[{fund_code}] 从收益接口获取成功")
         except Exception as e:
-            print(f"[{fund_code}] 解析收益数据失败: {str(e)}")
+            print(f"[{fund_code}] 收益接口获取失败: {str(e)}")
         
-        print(f"[{fund_code}] 从网页获取成功: {data_item.get('fund_name', '未知')}")
+        if 'fund_name' not in data_item:
+            url = f"https://fund.eastmoney.com/{fund_code}.html"
+            response = requests.get(url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            fund_name = soup.find('span', class_='funCur-FundName')
+            data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
+            
+            if 'net_value' not in data_item:
+                net_value_elem = soup.find('dl', class_='dataItem02')
+                if net_value_elem:
+                    net_value = net_value_elem.find('span', class_='ui-font-large')
+                    if net_value:
+                        data_item['net_value'] = float(net_value.text.strip())
+                    
+                    net_value_date = net_value_elem.find('dt')
+                    if net_value_date:
+                        data_item['net_value_date'] = net_value_date.text.strip()
+            
+            if 'day_growth' not in data_item:
+                day_growth_elem = soup.find('dl', class_='dataItem03')
+                if day_growth_elem:
+                    day_growth = day_growth_elem.find('span', class_='ui-font-large')
+                    if day_growth:
+                        growth_text = day_growth.text.strip().replace('%', '')
+                        try:
+                            data_item['day_growth'] = float(growth_text)
+                        except:
+                            pass
+        
+        print(f"[{fund_code}] 获取完成: {data_item.get('fund_name', '未知')}")
         return data_item
         
     except requests.exceptions.Timeout:
