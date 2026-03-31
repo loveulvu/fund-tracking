@@ -2,9 +2,12 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -13,7 +16,7 @@ CORS(app)
 # 优先从 Railway 环境变量读取，没有则报错，确保安全
 MONGO_URI = os.getenv("MONGO_URI")
 if not MONGO_URI:
-    raise ValueError("未在 Railway 环境变量中找到 MONGO_URI")
+    raise ValueError("致命错误：未找到 MONGO_URI 环境变量，请检查配置。")
 
 client = MongoClient(MONGO_URI)
 db = client['fund_database']
