@@ -136,6 +136,36 @@ def get_funds():
         print(f"获取基金列表失败: {str(e)}")
         return jsonify({"status": "error", "message": f"获取数据失败: {str(e)}"}), 500
 
+@app.route('/api/fund/<fund_code>')
+def get_fund(fund_code):
+    """获取单个基金数据"""
+    db_check = check_db_status()
+    if db_check: return db_check
+    
+    try:
+        # 先从数据库查找
+        fund_data = collection.find_one({"fund_code": fund_code}, {"_id": 0})
+        
+        if fund_data:
+            print(f"[{fund_code}] 从数据库获取成功")
+            return jsonify(fund_data)
+        
+        # 数据库中没有，从天天基金网爬取
+        print(f"[{fund_code}] 数据库中不存在，从天天基金网获取...")
+        data = get_fund_info(fund_code)
+        
+        if data:
+            # 保存到数据库
+            collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
+            print(f"[{fund_code}] ✅ 从天天基金网获取成功并保存到数据库")
+            return jsonify(data)
+        else:
+            return jsonify({"error": "Fund not found"}), 404
+            
+    except Exception as e:
+        print(f"获取基金数据失败: {str(e)}")
+        return jsonify({"error": f"Failed to fetch fund data: {str(e)}"}), 500
+
 @app.route('/')
 def index():
     if db_error_message:
