@@ -73,7 +73,7 @@ export default function About() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/watchlist', {
+      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +108,7 @@ export default function About() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/watchlist/${fundCode}`, {
+      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -134,7 +134,7 @@ export default function About() {
     const fetchFundsData = async () => {
       try {
         setLoading(true);
-        const response = await fetch('http://localhost:3001/api/funds/all');
+        const response = await fetch('https://fund-tracking-production.up.railway.app/api/funds');
         if (!response.ok) {
           throw new Error(`Failed to fetch funds data: ${response.status}`);
         }
@@ -175,7 +175,7 @@ export default function About() {
       // 如果是基金代码，尝试直接获取该基金数据
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3001/api/fund/${searchTerm}`);
+        const response = await fetch(`https://fund-tracking-production.up.railway.app/api/fund/${searchTerm}`);
         if (!response.ok) {
           throw new Error('Failed to fetch fund data');
         }
@@ -199,7 +199,7 @@ export default function About() {
       // 如果不是基金代码，尝试从服务器搜索
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3001/api/funds/search?query=${encodeURIComponent(searchTerm)}`);
+        const response = await fetch(`https://fund-tracking-production.up.railway.app/api/funds/search?query=${encodeURIComponent(searchTerm)}`);
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data) && data.length > 0) {

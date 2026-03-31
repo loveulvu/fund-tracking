@@ -72,7 +72,7 @@ export default function Profile() {
   // 获取单个基金的实时数据
   const fetchFundData = async (fundCode) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/fund/${fundCode}`);
+      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/fund/${fundCode}`);
       if (response.ok) {
         const data = await response.json();
         setFundData(prev => ({
@@ -89,7 +89,7 @@ export default function Profile() {
   const handleUnwatch = async (fundCode) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/watchlist/${fundCode}`, {
+      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -122,7 +122,7 @@ export default function Profile() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/watchlist/${fundCode}`, {
+      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

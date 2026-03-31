@@ -61,7 +61,7 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = await fetch('http://localhost:3001/api/auth/verify', {
+      const response = await fetch('https://fund-tracking-production.up.railway.app/api/auth/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
