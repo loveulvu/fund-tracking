@@ -141,16 +141,6 @@ def get_fund_info(fund_code):
                         except:
                             pass
             
-            import re
-            data_item['week_growth'] = 0.0
-            
-            year3_match = re.search(r'近3年.*?([+-]?\d+\.?\d*)%', html_text, re.DOTALL)
-            if year3_match:
-                try:
-                    data_item['three_year_growth'] = float(year3_match.group(1))
-                except:
-                    pass
-            
             print(f"[{fund_code}] 从主页获取补充数据成功")
         except Exception as e:
             print(f"[{fund_code}] 主页获取失败: {str(e)}")

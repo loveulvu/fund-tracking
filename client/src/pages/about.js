@@ -380,12 +380,6 @@ export default function About() {
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '15px' }}>
                       <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1周收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.week_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.week_growth !== undefined ? `${fund.week_growth >= 0 ? '+' : ''}${fund.week_growth}%` : '-'}
-                        </span>
-                      </div>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1月收益</span>
                         <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
                           {fund.month_growth !== undefined ? `${fund.month_growth >= 0 ? '+' : ''}${fund.month_growth}%` : '-'}
@@ -407,12 +401,6 @@ export default function About() {
                         <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1年收益</span>
                         <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
                           {fund.year_growth !== undefined ? `${fund.year_growth >= 0 ? '+' : ''}${fund.year_growth}%` : '-'}
-                        </span>
-                      </div>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近3年收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.three_year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.three_year_growth !== undefined ? `${fund.three_year_growth >= 0 ? '+' : ''}${fund.three_year_growth}%` : '-'}
                         </span>
                       </div>
                     </div>
