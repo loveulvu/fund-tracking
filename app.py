@@ -46,24 +46,44 @@ DEFAULT_FUND_CODES = [
 ]
 
 def get_fund_info(fund_code):
-    url = f"https://fund.eastmoney.com/{fund_code}.html"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     print(f"[{fund_code}] 开始获取基金信息...")
     
     try:
+        data_item = {
+            "fund_code": fund_code,
+            "update_time": int(time.time())
+        }
+        
+        try:
+            api_url = f"http://fundgz.1234567.com.cn/js/{fund_code}.js"
+            response = requests.get(api_url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
+            
+            jsonp_str = response.text
+            if jsonp_str and 'jsonpgz' in jsonp_str:
+                json_str = jsonp_str.replace('jsonpgz(', '').replace(');', '')
+                import json
+                fund_data = json.loads(json_str)
+                
+                data_item['fund_name'] = fund_data.get('name', '未知')
+                data_item['net_value'] = float(fund_data.get('dwjz', 0))
+                data_item['net_value_date'] = fund_data.get('jzrq', '')
+                data_item['day_growth'] = float(fund_data.get('gszzl', 0))
+                
+                print(f"[{fund_code}] 从 API 获取成功: {data_item['fund_name']}")
+                return data_item
+        except Exception as e:
+            print(f"[{fund_code}] API 获取失败: {str(e)}，尝试从网页获取")
+        
+        url = f"https://fund.eastmoney.com/{fund_code}.html"
         response = requests.get(url, headers=headers, timeout=3)
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
         
         fund_name = soup.find('span', class_='funCur-FundName')
-        fund_name = fund_name.text.strip() if fund_name else "未知"
-        
-        data_item = {
-            "fund_code": fund_code,
-            "fund_name": fund_name,
-            "update_time": int(time.time())
-        }
+        data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
         
         try:
             net_value_elem = soup.find('dl', class_='dataItem02')
@@ -128,7 +148,7 @@ def get_fund_info(fund_code):
         except Exception as e:
             print(f"[{fund_code}] 解析收益数据失败: {str(e)}")
         
-        print(f"[{fund_code}] 获取成功: {fund_name}")
+        print(f"[{fund_code}] 从网页获取成功: {data_item.get('fund_name', '未知')}")
         return data_item
         
     except requests.exceptions.Timeout:
