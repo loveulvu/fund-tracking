@@ -25,10 +25,11 @@ else:
     try:
         # 设置 2 秒超时，防止网络卡死导致 Railway 健康检查超时
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-        db = client['fund_database']
+        db = client['fund_tracking']
         collection = db['fund_data']
         # 测试连接
         client.admin.command('ping')
+        print(f"Flask 正在连接数据库: {db.name}")
         print("MongoDB 连接成功。")
     except Exception as e:
         db_error_message = f"MongoDB 连接失败: {str(e)}"
