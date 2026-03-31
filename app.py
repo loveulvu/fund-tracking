@@ -77,6 +77,47 @@ def get_fund_info(fund_code):
             print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
+            pingzhong_url = f"http://fund.eastmoney.com/pingzhongdata/{fund_code}.js"
+            response = requests.get(pingzhong_url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
+            
+            import re
+            text = response.text
+            
+            syl_1y_match = re.search(r'var\s+syl_1y\s*=\s*"([^"]*)";', text)
+            syl_3y_match = re.search(r'var\s+syl_3y\s*=\s*"([^"]*)";', text)
+            syl_6y_match = re.search(r'var\s+syl_6y\s*=\s*"([^"]*)";', text)
+            syl_1n_match = re.search(r'var\s+syl_1n\s*=\s*"([^"]*)";', text)
+            
+            if syl_1y_match:
+                try:
+                    data_item['month_growth'] = float(syl_1y_match.group(1))
+                except:
+                    data_item['month_growth'] = 0.0
+            
+            if syl_3y_match:
+                try:
+                    data_item['three_month_growth'] = float(syl_3y_match.group(1))
+                except:
+                    data_item['three_month_growth'] = 0.0
+            
+            if syl_6y_match:
+                try:
+                    data_item['six_month_growth'] = float(syl_6y_match.group(1))
+                except:
+                    data_item['six_month_growth'] = 0.0
+            
+            if syl_1n_match:
+                try:
+                    data_item['year_growth'] = float(syl_1n_match.group(1))
+                except:
+                    data_item['year_growth'] = 0.0
+            
+            print(f"[{fund_code}] 从品种数据接口获取收益数据成功")
+        except Exception as e:
+            print(f"[{fund_code}] 品种数据接口获取失败: {str(e)}")
+        
+        try:
             url = f"https://fund.eastmoney.com/{fund_code}.html"
             response = requests.get(url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
@@ -119,30 +160,6 @@ def get_fund_info(fund_code):
                             data_item['week_growth'] = float(value)
                         except:
                             pass
-                    elif '近1月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['month_growth'] = float(value)
-                        except:
-                            pass
-                    elif '近3月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['three_month_growth'] = float(value)
-                        except:
-                            pass
-                    elif '近6月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['six_month_growth'] = float(value)
-                        except:
-                            pass
-                    elif '近1年' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['year_growth'] = float(value)
-                        except:
-                            pass
                     elif '近3年' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
@@ -150,7 +167,7 @@ def get_fund_info(fund_code):
                         except:
                             pass
             
-            print(f"[{fund_code}] 从主页获取收益数据成功")
+            print(f"[{fund_code}] 从主页获取补充数据成功")
         except Exception as e:
             print(f"[{fund_code}] 主页获取失败: {str(e)}")
         
