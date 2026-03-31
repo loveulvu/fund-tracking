@@ -2,19 +2,24 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
+from functools import wraps
+import jwt
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
 # 1. 环境变量读取
 MONGO_URI = os.environ.get("MONGO_URI")
+JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
 
 # 2. 全局数据库对象占位
 db = None
 collection = None
+watchlist_collection = None
 db_error_message = None
 
 # 3. 柔性连接逻辑：即使失败也不触发进程崩溃，保证 Railway 能顺利启动
@@ -27,6 +32,7 @@ else:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
         db = client['fund_tracking']
         collection = db['fund_data']
+        watchlist_collection = db['watchlists']
         # 测试连接
         client.admin.command('ping')
         print(f"Flask 正在连接数据库: {db.name}")
@@ -143,6 +149,155 @@ def health():
         "db_connected": collection is not None,
         "db_error": db_error_message
     })
+
+# ============ JWT 验证装饰器 ============
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # 从请求头获取 token
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        try:
+            # 验证 token
+            data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+            current_user_id = data['userId']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        return f(current_user_id, *args, **kwargs)
+    
+    return decorated
+
+# ============ 关注列表 API ============
+
+@app.route('/api/watchlist', methods=['GET'])
+@token_required
+def get_watchlist(current_user_id):
+    """获取当前用户的关注列表"""
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
+        return jsonify(watchlist)
+    except Exception as e:
+        print(f"获取关注列表失败: {str(e)}")
+        return jsonify({'error': 'Failed to fetch watchlist'}), 500
+
+@app.route('/api/watchlist', methods=['POST'])
+@token_required
+def add_to_watchlist(current_user_id):
+    """添加基金到关注列表"""
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        data = request.get_json()
+        fund_code = data.get('fundCode')
+        fund_name = data.get('fundName')
+        threshold = data.get('alertThreshold', 5)
+        
+        if not fund_code or not fund_name:
+            return jsonify({'error': 'fundCode and fundName are required'}), 400
+        
+        # 检查是否已存在
+        existing = watchlist_collection.find_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        if existing:
+            return jsonify({'error': 'Fund already in watchlist'}), 400
+        
+        # 添加到关注列表
+        watchlist_item = {
+            'userId': current_user_id,
+            'fundCode': fund_code,
+            'fundName': fund_name,
+            'alertThreshold': threshold,
+            'addedAt': datetime.utcnow()
+        }
+        
+        watchlist_collection.insert_one(watchlist_item)
+        
+        # 返回时移除 _id
+        watchlist_item.pop('_id', None)
+        return jsonify(watchlist_item), 201
+        
+    except Exception as e:
+        print(f"添加关注失败: {str(e)}")
+        return jsonify({'error': 'Failed to add to watchlist'}), 500
+
+@app.route('/api/watchlist/<fund_code>', methods=['DELETE'])
+@token_required
+def remove_from_watchlist(current_user_id, fund_code):
+    """从关注列表中删除基金"""
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        result = watchlist_collection.delete_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        
+        return jsonify({'message': 'Successfully removed from watchlist'})
+        
+    except Exception as e:
+        print(f"删除关注失败: {str(e)}")
+        return jsonify({'error': 'Failed to remove from watchlist'}), 500
+
+@app.route('/api/watchlist/<fund_code>', methods=['PUT'])
+@token_required
+def update_watchlist_threshold(current_user_id, fund_code):
+    """更新关注基金的预警阈值"""
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        data = request.get_json()
+        new_threshold = data.get('alertThreshold')
+        
+        if new_threshold is None:
+            return jsonify({'error': 'alertThreshold is required'}), 400
+        
+        result = watchlist_collection.update_one(
+            {'userId': current_user_id, 'fundCode': fund_code},
+            {'$set': {'alertThreshold': new_threshold}}
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        
+        # 返回更新后的数据
+        updated_item = watchlist_collection.find_one(
+            {'userId': current_user_id, 'fundCode': fund_code},
+            {'_id': 0}
+        )
+        
+        return jsonify(updated_item)
+        
+    except Exception as e:
+        print(f"更新阈值失败: {str(e)}")
+        return jsonify({'error': 'Failed to update threshold'}), 500
 
 if __name__ == "__main__":
     # Railway 必须动态读取 PORT 变量

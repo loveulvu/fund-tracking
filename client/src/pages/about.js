@@ -28,35 +28,105 @@ export default function About() {
     }
   }, []);
 
-  // 暂时禁用关注功能，后端 API 未实现
+  // 获取关注列表
   const fetchWatchlist = async () => {
-    // 后端 API 未实现，暂时返回空数组
-    setWatchlist([]);
+    if (!user) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setWatchlist(data);
+      }
+    } catch (err) {
+      console.error('Error fetching watchlist:', err);
+    }
   };
 
-  // 初始化关注列表
+  // 用户登录后获取关注列表
   useEffect(() => {
-    fetchWatchlist();
-  }, []);
+    if (user) {
+      fetchWatchlist();
+    }
+  }, [user]);
 
   // 检查基金是否已关注
   const isWatched = (fundCode) => {
     return watchlist.some(item => item.fundCode === fundCode);
   };
 
-  // 暂时禁用关注功能，后端 API 未实现
+  // 关注基金
   const handleWatch = async (fund) => {
     if (!user) {
       alert('请先登录');
       return;
     }
-    alert('关注功能暂未实现');
+
+    const fundCode = fund.fund_code;
+    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('https://fund-tracking-production.up.railway.app/api/watchlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          fundCode: fundCode,
+          fundName: fund.fund_name,
+          alertThreshold: 5
+        })
+      });
+
+      if (response.ok) {
+        await fetchWatchlist();
+      } else {
+        const data = await response.json();
+        alert(data.error || '关注失败');
+      }
+    } catch (err) {
+      console.error('Error adding to watchlist:', err);
+      alert('关注失败');
+    } finally {
+      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+    }
   };
 
-  // 暂时禁用取消关注功能，后端 API 未实现
+  // 取消关注
   const handleUnwatch = async (fundCode) => {
     if (!user) return;
-    alert('取消关注功能暂未实现');
+
+    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`https://fund-tracking-production.up.railway.app/api/watchlist/${fundCode}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        await fetchWatchlist();
+      } else {
+        const data = await response.json();
+        alert(data.error || '取消关注失败');
+      }
+    } catch (err) {
+      console.error('Error removing from watchlist:', err);
+      alert('取消关注失败');
+    } finally {
+      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+    }
   };
 
   // 获取所有基金数据
