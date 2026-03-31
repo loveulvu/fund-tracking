@@ -295,12 +295,12 @@ def token_required(f):
 
 print("System: Loading Route /api/watchlist...")
 
-@app.route('/api/watchlist', methods=['GET', 'POST', 'OPTIONS'])
-def get_watchlist():
-    """获取关注列表（暂时返回所有数据，稍后恢复鉴权）"""
+@app.route('/api/watchlist', methods=['GET', 'OPTIONS'])
+@token_required
+def get_watchlist(current_user_id):
+    """获取当前用户的关注列表"""
     print(f"[DEBUG] Received request: {request.method} {request.path}")
     
-    # 处理 OPTIONS 预检请求
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
     
@@ -309,9 +309,8 @@ def get_watchlist():
         return db_check
     
     try:
-        # 暂时返回所有关注列表数据，不按用户过滤
-        watchlist = list(watchlist_collection.find({}, {'_id': 0}))
-        print(f"[DEBUG] Returning {len(watchlist)} items")
+        watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
+        print(f"[DEBUG] Returning {len(watchlist)} items for user {current_user_id}")
         return jsonify(watchlist)
     except Exception as e:
         print(f"获取关注列表失败: {str(e)}")
