@@ -84,34 +84,29 @@ def get_fund_info(fund_code):
             import re
             text = response.text
             
+            syl_1z_match = re.search(r'var\s+syl_1z\s*=\s*"([^"]*)";', text)
             syl_1y_match = re.search(r'var\s+syl_1y\s*=\s*"([^"]*)";', text)
             syl_3y_match = re.search(r'var\s+syl_3y\s*=\s*"([^"]*)";', text)
             syl_6y_match = re.search(r'var\s+syl_6y\s*=\s*"([^"]*)";', text)
             syl_1n_match = re.search(r'var\s+syl_1n\s*=\s*"([^"]*)";', text)
+            syl_3n_match = re.search(r'var\s+syl_3n\s*=\s*"([^"]*)";', text)
             
-            if syl_1y_match:
-                try:
-                    data_item['month_growth'] = float(syl_1y_match.group(1))
-                except:
-                    data_item['month_growth'] = 0.0
+            def parse_growth_value(match):
+                if match:
+                    value = match.group(1).strip()
+                    if value and value != '--' and value != '':
+                        try:
+                            return float(value)
+                        except:
+                            return 0.0
+                return 0.0
             
-            if syl_3y_match:
-                try:
-                    data_item['three_month_growth'] = float(syl_3y_match.group(1))
-                except:
-                    data_item['three_month_growth'] = 0.0
-            
-            if syl_6y_match:
-                try:
-                    data_item['six_month_growth'] = float(syl_6y_match.group(1))
-                except:
-                    data_item['six_month_growth'] = 0.0
-            
-            if syl_1n_match:
-                try:
-                    data_item['year_growth'] = float(syl_1n_match.group(1))
-                except:
-                    data_item['year_growth'] = 0.0
+            data_item['week_growth'] = parse_growth_value(syl_1z_match)
+            data_item['month_growth'] = parse_growth_value(syl_1y_match)
+            data_item['three_month_growth'] = parse_growth_value(syl_3y_match)
+            data_item['six_month_growth'] = parse_growth_value(syl_6y_match)
+            data_item['year_growth'] = parse_growth_value(syl_1n_match)
+            data_item['three_year_growth'] = parse_growth_value(syl_3n_match)
             
             print(f"[{fund_code}] 从品种数据接口获取收益数据成功")
         except Exception as e:
