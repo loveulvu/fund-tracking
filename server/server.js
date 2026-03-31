@@ -31,6 +31,13 @@ const authMiddleware = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.userId;
+    
+    // 获取用户邮箱
+    const user = await User.findById(decoded.userId);
+    if (user) {
+      req.userEmail = user.email;
+    }
+    
     next();
   } catch (error) {
     res.status(401).json({ error: 'Invalid token' });
