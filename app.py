@@ -84,12 +84,10 @@ def get_fund_info(fund_code):
             import re
             text = response.text
             
-            syl_1z_match = re.search(r'var\s+syl_1z\s*=\s*"([^"]*)";', text)
             syl_1y_match = re.search(r'var\s+syl_1y\s*=\s*"([^"]*)";', text)
             syl_3y_match = re.search(r'var\s+syl_3y\s*=\s*"([^"]*)";', text)
             syl_6y_match = re.search(r'var\s+syl_6y\s*=\s*"([^"]*)";', text)
             syl_1n_match = re.search(r'var\s+syl_1n\s*=\s*"([^"]*)";', text)
-            syl_3n_match = re.search(r'var\s+syl_3n\s*=\s*"([^"]*)";', text)
             
             def parse_growth_value(match):
                 if match:
@@ -101,12 +99,10 @@ def get_fund_info(fund_code):
                             return 0.0
                 return 0.0
             
-            data_item['week_growth'] = parse_growth_value(syl_1z_match)
             data_item['month_growth'] = parse_growth_value(syl_1y_match)
             data_item['three_month_growth'] = parse_growth_value(syl_3y_match)
             data_item['six_month_growth'] = parse_growth_value(syl_6y_match)
             data_item['year_growth'] = parse_growth_value(syl_1n_match)
-            data_item['three_year_growth'] = parse_growth_value(syl_3n_match)
             
             print(f"[{fund_code}] 从品种数据接口获取收益数据成功")
         except Exception as e:
@@ -117,6 +113,7 @@ def get_fund_info(fund_code):
             response = requests.get(url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, 'html.parser')
+            html_text = response.text
             
             if 'fund_name' not in data_item:
                 fund_name = soup.find('span', class_='funCur-FundName')
@@ -144,23 +141,15 @@ def get_fund_info(fund_code):
                         except:
                             pass
             
-            data_items = soup.find_all('div', class_='dataOfFund')
-            for item in data_items:
-                labels = item.find_all('label')
-                for label in labels:
-                    text = label.text.strip()
-                    if '近1周' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['week_growth'] = float(value)
-                        except:
-                            pass
-                    elif '近3年' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['three_year_growth'] = float(value)
-                        except:
-                            pass
+            import re
+            data_item['week_growth'] = 0.0
+            
+            year3_match = re.search(r'近3年.*?([+-]?\d+\.?\d*)%', html_text, re.DOTALL)
+            if year3_match:
+                try:
+                    data_item['three_year_growth'] = float(year3_match.group(1))
+                except:
+                    pass
             
             print(f"[{fund_code}] 从主页获取补充数据成功")
         except Exception as e:
