@@ -52,11 +52,11 @@ export default function Home() {
         console.error('Error fetching funds:', error.message);
         // 即使后端服务器没有运行，也显示模拟数据
         setFunds([
-          { fund_code: '000001', fund_name: '华夏成长混合', one_month_profit: '5.23%', one_year_profit: '21.56%' },
-          { fund_code: '000002', fund_name: '华夏债券A', one_month_profit: '1.23%', one_year_profit: '5.67%' },
-          { fund_code: '000003', fund_name: '华夏现金增利A', one_month_profit: '0.34%', one_year_profit: '1.89%' },
-          { fund_code: '000004', fund_name: '华夏回报混合A', one_month_profit: '3.45%', one_year_profit: '15.67%' },
-          { fund_code: '000005', fund_name: '华夏大盘精选混合', one_month_profit: '6.78%', one_year_profit: '28.90%' }
+          { fund_code: '000001', fund_name: '华夏成长混合', month_growth: 5.23, year_growth: 21.56 },
+          { fund_code: '000002', fund_name: '华夏债券A', month_growth: 1.23, year_growth: 5.67 },
+          { fund_code: '000003', fund_name: '华夏现金增利A', month_growth: 0.34, year_growth: 1.89 },
+          { fund_code: '000004', fund_name: '华夏回报混合A', month_growth: 3.45, year_growth: 15.67 },
+          { fund_code: '000005', fund_name: '华夏大盘精选混合', month_growth: 6.78, year_growth: 28.90 }
         ]);
       } finally {
         setLoading(false);
@@ -125,18 +125,18 @@ export default function Home() {
                     <span className={styles.profitLabel}>近1月:</span>
                     <span className={[
                       styles.profitValue,
-                      fund.one_month_profit && fund.one_month_profit.includes('-') ? styles.negative : styles.positive
+                      fund.month_growth < 0 ? styles.negative : styles.positive
                     ].join(' ')}>
-                      {fund.one_month_profit || 'N/A'}
+                      {fund.month_growth !== undefined ? `${fund.month_growth >= 0 ? '+' : ''}${fund.month_growth}%` : 'N/A'}
                     </span>
                   </div>
                   <div className={styles.fundProfit}>
                     <span className={styles.profitLabel}>近1年:</span>
                     <span className={[
                       styles.profitValue,
-                      fund.one_year_profit && fund.one_year_profit.includes('-') ? styles.negative : styles.positive
+                      fund.year_growth < 0 ? styles.negative : styles.positive
                     ].join(' ')}>
-                      {fund.one_year_profit || 'N/A'}
+                      {fund.year_growth !== undefined ? `${fund.year_growth >= 0 ? '+' : ''}${fund.year_growth}%` : 'N/A'}
                     </span>
                   </div>
                 </div>
