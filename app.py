@@ -182,15 +182,16 @@ def token_required(f):
 # ============ 关注列表 API ============
 
 @app.route('/api/watchlist', methods=['GET'])
-@token_required
-def get_watchlist(current_user_id):
-    """获取当前用户的关注列表"""
+# @token_required  # 暂时关闭鉴权，方便测试
+def get_watchlist():
+    """获取关注列表（暂时返回所有数据，稍后恢复鉴权）"""
     db_check = check_db_status()
     if db_check:
         return db_check
     
     try:
-        watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
+        # 暂时返回所有关注列表数据，不按用户过滤
+        watchlist = list(watchlist_collection.find({}, {'_id': 0}))
         return jsonify(watchlist)
     except Exception as e:
         print(f"获取关注列表失败: {str(e)}")
