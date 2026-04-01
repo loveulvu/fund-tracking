@@ -7,7 +7,7 @@ from flask_cors import CORS
 from pymongo import MongoClient
 from functools import wraps
 import jwt
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
@@ -20,6 +20,7 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
 db = None
 collection = None
 watchlist_collection = None
+users_collection = None
 db_error_message = None
 
 # 3. 柔性连接逻辑：即使失败也不触发进程崩溃，保证 Railway 能顺利启动
@@ -33,6 +34,7 @@ else:
         db = client['fund_tracking']
         collection = db['fund_data']
         watchlist_collection = db['watchlists']
+        users_collection = db['users']
         # 测试连接
         client.admin.command('ping')
         print(f"Flask 正在连接数据库: {db.name}")
@@ -291,6 +293,122 @@ def token_required(f):
         return f(current_user_id, *args, **kwargs)
     
     return decorated
+
+# ============ 用户认证 API ============
+
+@app.route('/api/auth/register', methods=['POST', 'OPTIONS'])
+def register():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+    
+    if users_collection is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        existing_user = users_collection.find_one({'email': email})
+        if existing_user:
+            return jsonify({'error': 'User already exists'}), 400
+        
+        user = {
+            'email': email,
+            'password': password,
+            'created_at': datetime.utcnow()
+        }
+        
+        result = users_collection.insert_one(user)
+        user_id = str(result.inserted_id)
+        
+        token = jwt.encode({
+            'userId': user_id,
+            'email': email,
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, JWT_SECRET, algorithm='HS256')
+        
+        return jsonify({
+            'message': 'Registration successful',
+            'token': token,
+            'email': email
+        }), 201
+        
+    except Exception as e:
+        print(f"注册失败: {str(e)}")
+        return jsonify({'error': 'Registration failed'}), 500
+
+@app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
+def login():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+    
+    if users_collection is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        user = users_collection.find_one({'email': email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user['password'] != password:
+            return jsonify({'error': 'Invalid password'}), 401
+        
+        user_id = str(user['_id'])
+        
+        token = jwt.encode({
+            'userId': user_id,
+            'email': email,
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, JWT_SECRET, algorithm='HS256')
+        
+        return jsonify({
+            'message': 'Login successful',
+            'token': token,
+            'email': email
+        }), 200
+        
+    except Exception as e:
+        print(f"登录失败: {str(e)}")
+        return jsonify({'error': 'Login failed'}), 500
+
+@app.route('/api/auth/verify', methods=['GET', 'OPTIONS'])
+@token_required
+def verify_token(current_user_id):
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+    
+    if users_collection is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        from bson.objectid import ObjectId
+        user = users_collection.find_one({'_id': ObjectId(current_user_id)})
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        return jsonify({
+            'status': 'success',
+            'user': {
+                'id': current_user_id,
+                'email': user['email']
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"验证失败: {str(e)}")
+        return jsonify({'error': 'Verification failed'}), 500
 
 # ============ 关注列表 API ============
 
