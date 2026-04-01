@@ -320,7 +320,7 @@ def send_verification_email(to_email, code):
         print("[邮件] 正在通过 Resend API 发送...")
         
         params = {
-            "from": "no-reply@send.fundtracking.online",
+            "from": "no-reply@fundtracking.online",
             "to": [to_email],
             "subject": "基金追踪系统 - 邮箱验证码",
             "html": f'''
