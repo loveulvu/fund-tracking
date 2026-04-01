@@ -1,6 +1,8 @@
 import os
 import time
 import requests
+import random
+import smtplib
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -8,6 +10,8 @@ from pymongo import MongoClient
 from functools import wraps
 import jwt
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 CORS(app)
@@ -15,6 +19,8 @@ CORS(app)
 # 1. 环境变量读取
 MONGO_URI = os.environ.get("MONGO_URI")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
+EMAIL_USER = os.environ.get("EMAIL_USER")
+EMAIL_PASS = os.environ.get("EMAIL_PASS")
 
 # 2. 全局数据库对象占位
 db = None
@@ -294,6 +300,42 @@ def token_required(f):
     
     return decorated
 
+# ============ 邮件发送功能 ============
+
+def send_verification_email(to_email, code):
+    try:
+        if not EMAIL_USER or not EMAIL_PASS:
+            print("邮件配置缺失：EMAIL_USER 或 EMAIL_PASS 未设置")
+            return False
+        
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_USER
+        msg['To'] = to_email
+        msg['Subject'] = '基金追踪系统 - 邮箱验证码'
+        
+        body = f'''
+        <html>
+        <body>
+        <h2>基金追踪系统</h2>
+        <p>您的验证码是：<strong style="font-size: 24px; color: #4CAF50;">{code}</strong></p>
+        <p>验证码有效期为10分钟，请尽快完成验证。</p>
+        <p>如果您没有注册账号，请忽略此邮件。</p>
+        </body>
+        </html>
+        '''
+        msg.attach(MIMEText(body, 'html', 'utf-8'))
+        
+        server = smtplib.SMTP_SSL('smtp.qq.com', 465)
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.sendmail(EMAIL_USER, to_email, msg.as_string())
+        server.quit()
+        
+        print(f"验证码邮件发送成功: {to_email}")
+        return True
+    except Exception as e:
+        print(f"邮件发送失败: {str(e)}")
+        return False
+
 # ============ 用户认证 API ============
 
 @app.route('/api/auth/register', methods=['POST', 'OPTIONS'])
@@ -314,28 +356,42 @@ def register():
         
         existing_user = users_collection.find_one({'email': email})
         if existing_user:
-            return jsonify({'error': 'User already exists'}), 400
+            if existing_user.get('verified'):
+                return jsonify({'error': 'User already exists'}), 400
+            else:
+                verification_code = str(random.randint(100000, 999999))
+                users_collection.update_one(
+                    {'email': email},
+                    {'$set': {
+                        'verification_code': verification_code,
+                        'verification_code_expires': datetime.utcnow() + timedelta(minutes=10)
+                    }}
+                )
+                email_sent = send_verification_email(email, verification_code)
+                if email_sent:
+                    return jsonify({'emailSent': True}), 200
+                else:
+                    return jsonify({'verificationCode': verification_code}), 200
+        
+        verification_code = str(random.randint(100000, 999999))
         
         user = {
             'email': email,
             'password': password,
+            'verified': False,
+            'verification_code': verification_code,
+            'verification_code_expires': datetime.utcnow() + timedelta(minutes=10),
             'created_at': datetime.utcnow()
         }
         
-        result = users_collection.insert_one(user)
-        user_id = str(result.inserted_id)
+        users_collection.insert_one(user)
         
-        token = jwt.encode({
-            'userId': user_id,
-            'email': email,
-            'exp': datetime.utcnow() + timedelta(days=7)
-        }, JWT_SECRET, algorithm='HS256')
+        email_sent = send_verification_email(email, verification_code)
         
-        return jsonify({
-            'message': 'Registration successful',
-            'token': token,
-            'email': email
-        }), 201
+        if email_sent:
+            return jsonify({'emailSent': True}), 200
+        else:
+            return jsonify({'verificationCode': verification_code}), 200
         
     except Exception as e:
         print(f"注册失败: {str(e)}")
@@ -361,6 +417,9 @@ def login():
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
+        if not user.get('verified'):
+            return jsonify({'error': 'Please verify your email first'}), 401
+        
         if user['password'] != password:
             return jsonify({'error': 'Invalid password'}), 401
         
@@ -382,7 +441,70 @@ def login():
         print(f"登录失败: {str(e)}")
         return jsonify({'error': 'Login failed'}), 500
 
-@app.route('/api/auth/verify', methods=['GET', 'OPTIONS'])
+@app.route('/api/auth/verify', methods=['POST', 'OPTIONS'])
+def verify_email():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+    
+    if users_collection is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        code = data.get('code')
+        password = data.get('password')
+        
+        if not email or not code:
+            return jsonify({'error': 'Email and code are required'}), 400
+        
+        user = users_collection.find_one({'email': email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user.get('verified'):
+            return jsonify({'message': 'Email already verified'}), 200
+        
+        stored_code = user.get('verification_code')
+        expires = user.get('verification_code_expires')
+        
+        if not stored_code or not expires:
+            return jsonify({'error': 'Verification code not found, please register again'}), 400
+        
+        if datetime.utcnow() > expires:
+            return jsonify({'error': 'Verification code expired'}), 400
+        
+        if code != stored_code:
+            return jsonify({'error': 'Invalid verification code'}), 400
+        
+        users_collection.update_one(
+            {'email': email},
+            {'$set': {
+                'verified': True,
+                'verification_code': None,
+                'verification_code_expires': None
+            }}
+        )
+        
+        user_id = str(user['_id'])
+        
+        token = jwt.encode({
+            'userId': user_id,
+            'email': email,
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, JWT_SECRET, algorithm='HS256')
+        
+        return jsonify({
+            'message': 'Email verified successfully',
+            'token': token,
+            'email': email
+        }), 200
+        
+    except Exception as e:
+        print(f"验证失败: {str(e)}")
+        return jsonify({'error': 'Verification failed'}), 500
+
+@app.route('/api/auth/check', methods=['GET', 'OPTIONS'])
 @token_required
 def verify_token(current_user_id):
     if request.method == 'OPTIONS':
