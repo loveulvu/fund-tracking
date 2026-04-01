@@ -306,56 +306,54 @@ def token_required(f):
 
 def send_verification_email(to_email, code):
     print(f"[邮件] 开始发送验证码到 {to_email}")
-    print(f"[邮件] EMAIL_USER: {EMAIL_USER}")
-    print(f"[邮件] EMAIL_PASS 已配置: {'是' if EMAIL_PASS else '否'}")
+    
+    RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+    
+    if not RESEND_API_KEY:
+        print("[邮件] RESEND_API_KEY 未配置，使用备用方案")
+        print(f"[邮件] 验证码: {code}")
+        return False, f"邮件服务未配置，验证码: {code}"
     
     try:
-        if not EMAIL_USER or not EMAIL_PASS:
-            print("邮件配置缺失：EMAIL_USER 或 EMAIL_PASS 未设置")
-            return False, "邮件配置缺失"
+        import urllib.request
+        import urllib.parse
+        import json
         
-        print("[邮件] 正在构建邮件内容...")
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_USER
-        msg['To'] = to_email
-        msg['Subject'] = '基金追踪系统 - 邮箱验证码'
+        data = {
+            "from": "Fund Tracking <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": "基金追踪系统 - 邮箱验证码",
+            "html": f'''
+            <html>
+            <body>
+            <h2>基金追踪系统</h2>
+            <p>您的验证码是：<strong style="font-size: 24px; color: #4CAF50;">{code}</strong></p>
+            <p>验证码有效期为10分钟，请尽快完成验证。</p>
+            <p>如果您没有注册账号，请忽略此邮件。</p>
+            </body>
+            </html>
+            '''
+        }
         
-        body = f'''
-        <html>
-        <body>
-        <h2>基金追踪系统</h2>
-        <p>您的验证码是：<strong style="font-size: 24px; color: #4CAF50;">{code}</strong></p>
-        <p>验证码有效期为10分钟，请尽快完成验证。</p>
-        <p>如果您没有注册账号，请忽略此邮件。</p>
-        </body>
-        </html>
-        '''
-        msg.attach(MIMEText(body, 'html', 'utf-8'))
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=json.dumps(data).encode('utf-8'),
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            method='POST'
+        )
         
-        print("[邮件] 正在连接SMTP服务器...")
-        socket.setdefaulttimeout(10)
-        
-        server = smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=10)
-        print("[邮件] SMTP连接成功，正在登录...")
-        server.login(EMAIL_USER, EMAIL_PASS)
-        print("[邮件] 登录成功，正在发送邮件...")
-        server.sendmail(EMAIL_USER, to_email, msg.as_string())
-        server.quit()
-        
-        print(f"[邮件] 验证码邮件发送成功: {to_email}")
-        return True, "发送成功"
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"[邮件] SMTP认证失败: {str(e)}")
-        return False, "邮箱认证失败，请检查EMAIL_USER和EMAIL_PASS"
-    except smtplib.SMTPException as e:
-        print(f"[邮件] SMTP错误: {str(e)}")
-        return False, f"邮件发送错误: {str(e)}"
-    except socket.timeout as e:
-        print(f"[邮件] 邮件发送超时: {str(e)}")
-        return False, "邮件发送超时"
+        print("[邮件] 正在通过 Resend API 发送...")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            print(f"[邮件] 发送成功: {result}")
+            return True, "发送成功"
+            
     except Exception as e:
-        print(f"[邮件] 邮件发送失败: {str(e)}")
-        return False, f"邮件发送失败: {str(e)}"
+        print(f"[邮件] 发送失败: {str(e)}")
+        return False, f"邮件发送失败，验证码: {code}"
 
 # ============ 用户认证 API ============
 
@@ -389,7 +387,7 @@ def register():
                     }}
                 )
                 threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
-                return jsonify({'emailSent': True, 'message': '验证邮件正在发送中'}), 200
+                return jsonify({'emailSent': True, 'message': '验证邮件正在发送中，请检查邮箱（包括垃圾邮件）'}), 200
         
         verification_code = str(random.randint(100000, 999999))
         
@@ -406,7 +404,7 @@ def register():
         
         threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
         
-        return jsonify({'emailSent': True, 'message': '验证邮件正在发送中'}), 200
+        return jsonify({'emailSent': True, 'message': '验证邮件正在发送中，请检查邮箱（包括垃圾邮件）'}), 200
         
     except Exception as e:
         print(f"注册失败: {str(e)}")
