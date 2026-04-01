@@ -3,15 +3,6 @@ import styles from '../../styles/Login.module.css';
 import PillNav from '../components/PillNav';
 import api from '../lib/api';
 
-const fetchWithTimeout = (promise, timeout = 15000) => {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('请求超时，请稍后重试')), timeout)
-    )
-  ]);
-};
-
 export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
@@ -26,24 +17,15 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = await fetchWithTimeout(
-        isRegister 
-          ? api.register(email, password)
-          : api.login(email, password),
-        15000
-      );
+      const response = isRegister 
+        ? await api.register(email, password)
+        : await api.login(email, password);
 
       const result = await response.json();
 
       if (response.ok) {
         if (isRegister) {
-          if (result.emailSent) {
-            setMessage('验证码已发送！请检查邮箱获取验证码');
-          } else if (result.verificationCode) {
-            setMessage(`验证码已生成！邮件发送失败（${result.error || '未知错误'}），验证码是：${result.verificationCode}`);
-          } else {
-            setMessage('注册成功！请检查邮箱获取验证码');
-          }
+          setMessage(result.message || '验证码已发送！请检查邮箱获取验证码');
         } else {
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify({ email: result.email }));
@@ -53,7 +35,7 @@ export default function Login() {
         setMessage(result.error || '操作失败');
       }
     } catch (error) {
-      setMessage(error.message || '网络错误，请稍后重试');
+      setMessage('网络错误，请稍后重试');
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -66,10 +48,7 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = await fetchWithTimeout(
-        api.verifyEmail(email, verificationCode, password),
-        15000
-      );
+      const response = await api.verifyEmail(email, verificationCode, password);
 
       const result = await response.json();
 
@@ -84,7 +63,7 @@ export default function Login() {
         setMessage(result.error || '验证失败');
       }
     } catch (error) {
-      setMessage(error.message || '网络错误，请稍后重试');
+      setMessage('网络错误，请稍后重试');
       console.error('Error:', error);
     } finally {
       setLoading(false);

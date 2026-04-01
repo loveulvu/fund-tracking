@@ -4,6 +4,7 @@ import requests
 import random
 import smtplib
 import socket
+import threading
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -379,11 +380,8 @@ def register():
                         'verification_code_expires': datetime.utcnow() + timedelta(minutes=10)
                     }}
                 )
-                email_sent, error_msg = send_verification_email(email, verification_code)
-                if email_sent:
-                    return jsonify({'emailSent': True}), 200
-                else:
-                    return jsonify({'verificationCode': verification_code, 'error': error_msg}), 200
+                threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
+                return jsonify({'emailSent': True, 'message': '验证邮件正在发送中'}), 200
         
         verification_code = str(random.randint(100000, 999999))
         
@@ -398,12 +396,9 @@ def register():
         
         users_collection.insert_one(user)
         
-        email_sent, error_msg = send_verification_email(email, verification_code)
+        threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
         
-        if email_sent:
-            return jsonify({'emailSent': True}), 200
-        else:
-            return jsonify({'verificationCode': verification_code, 'error': error_msg}), 200
+        return jsonify({'emailSent': True, 'message': '验证邮件正在发送中'}), 200
         
     except Exception as e:
         print(f"注册失败: {str(e)}")
