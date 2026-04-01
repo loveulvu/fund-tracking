@@ -3,6 +3,7 @@ import time
 import requests
 import random
 import smtplib
+import socket
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -306,7 +307,7 @@ def send_verification_email(to_email, code):
     try:
         if not EMAIL_USER or not EMAIL_PASS:
             print("邮件配置缺失：EMAIL_USER 或 EMAIL_PASS 未设置")
-            return False
+            return False, "邮件配置缺失"
         
         msg = MIMEMultipart()
         msg['From'] = EMAIL_USER
@@ -325,16 +326,27 @@ def send_verification_email(to_email, code):
         '''
         msg.attach(MIMEText(body, 'html', 'utf-8'))
         
-        server = smtplib.SMTP_SSL('smtp.qq.com', 465)
+        socket.setdefaulttimeout(10)
+        
+        server = smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=10)
         server.login(EMAIL_USER, EMAIL_PASS)
         server.sendmail(EMAIL_USER, to_email, msg.as_string())
         server.quit()
         
         print(f"验证码邮件发送成功: {to_email}")
-        return True
+        return True, "发送成功"
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"SMTP认证失败: {str(e)}")
+        return False, "邮箱认证失败，请检查EMAIL_USER和EMAIL_PASS"
+    except smtplib.SMTPException as e:
+        print(f"SMTP错误: {str(e)}")
+        return False, f"邮件发送错误: {str(e)}"
+    except socket.timeout as e:
+        print(f"邮件发送超时: {str(e)}")
+        return False, "邮件发送超时"
     except Exception as e:
         print(f"邮件发送失败: {str(e)}")
-        return False
+        return False, f"邮件发送失败: {str(e)}"
 
 # ============ 用户认证 API ============
 
@@ -367,11 +379,11 @@ def register():
                         'verification_code_expires': datetime.utcnow() + timedelta(minutes=10)
                     }}
                 )
-                email_sent = send_verification_email(email, verification_code)
+                email_sent, error_msg = send_verification_email(email, verification_code)
                 if email_sent:
                     return jsonify({'emailSent': True}), 200
                 else:
-                    return jsonify({'verificationCode': verification_code}), 200
+                    return jsonify({'verificationCode': verification_code, 'error': error_msg}), 200
         
         verification_code = str(random.randint(100000, 999999))
         
@@ -386,12 +398,12 @@ def register():
         
         users_collection.insert_one(user)
         
-        email_sent = send_verification_email(email, verification_code)
+        email_sent, error_msg = send_verification_email(email, verification_code)
         
         if email_sent:
             return jsonify({'emailSent': True}), 200
         else:
-            return jsonify({'verificationCode': verification_code}), 200
+            return jsonify({'verificationCode': verification_code, 'error': error_msg}), 200
         
     except Exception as e:
         print(f"注册失败: {str(e)}")

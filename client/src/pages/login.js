@@ -3,6 +3,15 @@ import styles from '../../styles/Login.module.css';
 import PillNav from '../components/PillNav';
 import api from '../lib/api';
 
+const fetchWithTimeout = (promise, timeout = 15000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('请求超时，请稍后重试')), timeout)
+    )
+  ]);
+};
+
 export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
@@ -17,9 +26,12 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = isRegister 
-        ? await api.register(email, password)
-        : await api.login(email, password);
+      const response = await fetchWithTimeout(
+        isRegister 
+          ? api.register(email, password)
+          : api.login(email, password),
+        15000
+      );
 
       const result = await response.json();
 
@@ -28,12 +40,11 @@ export default function Login() {
           if (result.emailSent) {
             setMessage('验证码已发送！请检查邮箱获取验证码');
           } else if (result.verificationCode) {
-            setMessage(`验证码已生成！邮件发送失败，但验证码是：${result.verificationCode}`);
+            setMessage(`验证码已生成！邮件发送失败（${result.error || '未知错误'}），验证码是：${result.verificationCode}`);
           } else {
             setMessage('注册成功！请检查邮箱获取验证码');
           }
         } else {
-          // 登录成功，保存token和用户信息
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify({ email: result.email }));
           window.location.href = '/profile';
@@ -42,7 +53,7 @@ export default function Login() {
         setMessage(result.error || '操作失败');
       }
     } catch (error) {
-      setMessage('网络错误，请稍后重试');
+      setMessage(error.message || '网络错误，请稍后重试');
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -55,18 +66,25 @@ export default function Login() {
     setMessage('');
 
     try {
-      const response = await api.verifyEmail(email, verificationCode, password);
+      const response = await fetchWithTimeout(
+        api.verifyEmail(email, verificationCode, password),
+        15000
+      );
 
       const result = await response.json();
 
       if (response.ok) {
-        setMessage('验证成功！请登录');
-        setIsRegister(false);
+        localStorage.setItem('token', result.token);
+        localStorage.setItem('user', JSON.stringify({ email: result.email }));
+        setMessage('验证成功！正在跳转...');
+        setTimeout(() => {
+          window.location.href = '/profile';
+        }, 1000);
       } else {
         setMessage(result.error || '验证失败');
       }
     } catch (error) {
-      setMessage('网络错误，请稍后重试');
+      setMessage(error.message || '网络错误，请稍后重试');
       console.error('Error:', error);
     } finally {
       setLoading(false);
