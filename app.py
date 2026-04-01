@@ -305,11 +305,16 @@ def token_required(f):
 # ============ 邮件发送功能 ============
 
 def send_verification_email(to_email, code):
+    print(f"[邮件] 开始发送验证码到 {to_email}")
+    print(f"[邮件] EMAIL_USER: {EMAIL_USER}")
+    print(f"[邮件] EMAIL_PASS 已配置: {'是' if EMAIL_PASS else '否'}")
+    
     try:
         if not EMAIL_USER or not EMAIL_PASS:
             print("邮件配置缺失：EMAIL_USER 或 EMAIL_PASS 未设置")
             return False, "邮件配置缺失"
         
+        print("[邮件] 正在构建邮件内容...")
         msg = MIMEMultipart()
         msg['From'] = EMAIL_USER
         msg['To'] = to_email
@@ -327,26 +332,29 @@ def send_verification_email(to_email, code):
         '''
         msg.attach(MIMEText(body, 'html', 'utf-8'))
         
+        print("[邮件] 正在连接SMTP服务器...")
         socket.setdefaulttimeout(10)
         
         server = smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=10)
+        print("[邮件] SMTP连接成功，正在登录...")
         server.login(EMAIL_USER, EMAIL_PASS)
+        print("[邮件] 登录成功，正在发送邮件...")
         server.sendmail(EMAIL_USER, to_email, msg.as_string())
         server.quit()
         
-        print(f"验证码邮件发送成功: {to_email}")
+        print(f"[邮件] 验证码邮件发送成功: {to_email}")
         return True, "发送成功"
     except smtplib.SMTPAuthenticationError as e:
-        print(f"SMTP认证失败: {str(e)}")
+        print(f"[邮件] SMTP认证失败: {str(e)}")
         return False, "邮箱认证失败，请检查EMAIL_USER和EMAIL_PASS"
     except smtplib.SMTPException as e:
-        print(f"SMTP错误: {str(e)}")
+        print(f"[邮件] SMTP错误: {str(e)}")
         return False, f"邮件发送错误: {str(e)}"
     except socket.timeout as e:
-        print(f"邮件发送超时: {str(e)}")
+        print(f"[邮件] 邮件发送超时: {str(e)}")
         return False, "邮件发送超时"
     except Exception as e:
-        print(f"邮件发送失败: {str(e)}")
+        print(f"[邮件] 邮件发送失败: {str(e)}")
         return False, f"邮件发送失败: {str(e)}"
 
 # ============ 用户认证 API ============
