@@ -7,15 +7,15 @@ from pymongo import MongoClient
 from datetime import datetime
 
 MONGO_URI = os.environ.get("MONGO_URI")
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "no-reply@fundtracking.online")
+MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+MAIL_SENDER = os.environ.get("MAIL_SENDER", "no-reply@fundtracking.online")
 
 if not MONGO_URI:
     print("[错误] MONGO_URI 环境变量缺失")
     sys.exit(1)
 
-if not RESEND_API_KEY:
-    print("[警告] RESEND_API_KEY 环境变量缺失，邮件发送功能将不可用")
+if not MAIL_PASSWORD:
+    print("[警告] MAIL_PASSWORD 环境变量缺失，邮件发送功能将不可用")
 
 try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
@@ -70,20 +70,20 @@ def send_alert_email(user_email, fund_code, fund_name, current_growth, threshold
     """
     使用 Resend API 发送报警邮件
     """
-    if not RESEND_API_KEY:
-        print(f"[邮件] RESEND_API_KEY 未配置，跳过发送")
+    if not MAIL_PASSWORD:
+        print(f"[邮件] MAIL_PASSWORD 未配置，跳过发送")
         return False
     
     try:
         url = "https://api.resend.com/emails"
         
         headers = {
-            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Authorization": f"Bearer {MAIL_PASSWORD}",
             "Content-Type": "application/json"
         }
         
         data = {
-            "from": f"FundTracking <{SENDER_EMAIL}>",
+            "from": f"FundTracking <{MAIL_SENDER}>",
             "to": [user_email],
             "subject": f"基金涨幅预警 - {fund_name} ({fund_code})",
             "html": f"""
@@ -111,11 +111,12 @@ def send_alert_email(user_email, fund_code, fund_name, current_growth, threshold
         
         response = requests.post(url, headers=headers, json=data, timeout=10)
         
-        if response.status_code == 200:
-            print(f"[邮件] ✅ 发送成功: {user_email}")
+        if 200 <= response.status_code < 300:
+            result = response.json()
+            print(f"[邮件] ✅ 发送成功: {user_email}, Resend ID: {result.get('id')}")
             return True
         else:
-            print(f"[邮件] ❌ 发送失败: {response.status_code} - {response.text}")
+            print(f"[邮件] ❌ 发送失败: HTTP {response.status_code} - {response.text}")
             return False
             
     except Exception as e:
