@@ -9,7 +9,7 @@ from flask_cors import CORS
 from pymongo import MongoClient
 from functools import wraps
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
@@ -25,15 +25,21 @@ EMAIL_PORT = os.environ.get("EMAIL_PORT")
 def send_verification_email(email, code):
     """
     使用 SMTP 发送验证码邮件
+    - 设置 5 秒超时防止 Railway 卡死
+    - 返回 (success: bool, error_msg: str)
     """
     if not EMAIL_SENDER or not EMAIL_PASSWORD or not EMAIL_SMTP or not EMAIL_PORT:
-        print(f"[邮件] ⚠️ 邮件配置不完整，验证码: {code}")
-        return False
+        error_msg = "邮件服务配置不完整"
+        print(f"[邮件] ⚠️ {error_msg}")
+        return False, error_msg
     
     try:
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
+        import socket
+        
+        socket.setdefaulttimeout(5)
         
         msg = MIMEMultipart('alternative')
         msg['Subject'] = "您的验证码 - Fund Tracking"
@@ -55,15 +61,16 @@ def send_verification_email(email, code):
         html_part = MIMEText(html_content, 'html', 'utf-8')
         msg.attach(html_part)
         
-        with smtplib.SMTP_SSL(EMAIL_SMTP, int(EMAIL_PORT)) as server:
+        with smtplib.SMTP_SSL(EMAIL_SMTP, int(EMAIL_PORT), timeout=5) as server:
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.sendmail(EMAIL_SENDER, email, msg.as_string())
         
         print(f"[邮件] ✅ 验证码已发送至 {email}")
-        return True
+        return True, None
     except Exception as e:
-        print(f"[邮件] ❌ 发送异常: {str(e)}")
-        return False
+        error_msg = f"邮件服务连接超时或失败: {str(e)}"
+        print(f"[邮件] ❌ 发送异常: {error_msg}")
+        return False, error_msg
 
 # 2. 全局数据库对象占位
 db = None
