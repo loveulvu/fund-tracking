@@ -220,6 +220,8 @@ def get_fund_info(fund_code):
                             pass
             
             data_items = soup.find_all('div', class_='dataOfFund')
+            print(f"[{fund_code}] 找到 {len(data_items)} 个数据区域")
+            
             for item in data_items:
                 labels = item.find_all('label')
                 for label in labels:
@@ -228,38 +230,57 @@ def get_fund_info(fund_code):
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['week_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近1周: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近1周解析失败: {str(e)}")
                     elif '近1月' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['month_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近1月: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近1月解析失败: {str(e)}")
                     elif '近3月' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['three_month_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近3月: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近3月解析失败: {str(e)}")
                     elif '近6月' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['six_month_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近6月: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近6月解析失败: {str(e)}")
                     elif '近1年' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['year_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近1年: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近1年解析失败: {str(e)}")
                     elif '近3年' in text:
                         try:
                             value = label.find_next('span').text.strip().replace('%', '')
                             data_item['three_year_growth'] = float(value)
-                        except:
-                            pass
+                            print(f"[{fund_code}] 近3年: {value}%")
+                        except Exception as e:
+                            print(f"[{fund_code}] 近3年解析失败: {str(e)}")
+            
+            if 'week_growth' not in data_item:
+                data_item['week_growth'] = 0
+            if 'month_growth' not in data_item:
+                data_item['month_growth'] = 0
+            if 'three_month_growth' not in data_item:
+                data_item['three_month_growth'] = 0
+            if 'six_month_growth' not in data_item:
+                data_item['six_month_growth'] = 0
+            if 'year_growth' not in data_item:
+                data_item['year_growth'] = 0
+            if 'three_year_growth' not in data_item:
+                data_item['three_year_growth'] = 0
             
             print(f"[{fund_code}] 从主页获取收益数据成功")
         except Exception as e:
