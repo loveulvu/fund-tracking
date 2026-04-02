@@ -47,6 +47,17 @@ else:
         client.admin.command('ping')
         print(f"Flask 正在连接数据库: {db.name}")
         print("MongoDB 连接成功。")
+        
+        # 清理脏数据：删除所有不属于已注册用户的关注列表记录
+        try:
+            all_user_ids = [str(u['_id']) for u in users_collection.find({}, {'_id': 1})]
+            result = watchlist_collection.delete_many({
+                'userId': {'$nin': all_user_ids}
+            })
+            if result.deleted_count > 0:
+                print(f"[清理] 已删除 {result.deleted_count} 条脏数据（不属于任何用户的关注记录）")
+        except Exception as e:
+            print(f"[清理] 清理脏数据失败: {str(e)}")
     except Exception as e:
         db_error_message = f"MongoDB 连接失败: {str(e)}"
         print(db_error_message)
@@ -647,18 +658,33 @@ def remove_from_watchlist(current_user_id, fund_code):
         return db_check
     
     try:
+        print(f"[删除关注] 用户: {current_user_id}, 基金代码: {fund_code}")
+        
+        # 先检查是否存在
+        existing = watchlist_collection.find_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        if not existing:
+            print(f"[删除关注] ❌ 未找到记录: userId={current_user_id}, fundCode={fund_code}")
+            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        
+        # 执行物理删除
         result = watchlist_collection.delete_one({
             'userId': current_user_id,
             'fundCode': fund_code
         })
         
+        print(f"[删除关注] ✅ 删除结果: deleted_count={result.deleted_count}")
+        
         if result.deleted_count == 0:
-            return jsonify({'error': 'Fund not found in watchlist'}), 404
+            return jsonify({'error': 'Failed to delete from watchlist'}), 500
         
         return jsonify({'message': 'Successfully removed from watchlist'})
         
     except Exception as e:
-        print(f"删除关注失败: {str(e)}")
+        print(f"[删除关注] ❌ 删除失败: {str(e)}")
         return jsonify({'error': 'Failed to remove from watchlist'}), 500
 
 @app.route('/api/watchlist/<fund_code>', methods=['PUT'])
