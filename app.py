@@ -785,7 +785,9 @@ def register():
             return jsonify({'error': 'Email and password are required'}), 400
         
         existing_user = users_collection.find_one({'email': email})
-        if existing_user:
+        
+        if existing_user and existing_user.get('is_verified'):
+            print(f"[注册] ❌ 用户已存在且已验证: {email}")
             return jsonify({'error': 'User already exists'}), 409
         
         import random
@@ -799,22 +801,96 @@ def register():
         
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
         
-        pending_user = {
-            'email': email,
-            'password': password,
-            'verification_code': verification_code,
-            'verification_code_expires': expires_at,
-            'createdAt': datetime.now(timezone.utc)
-        }
+        if existing_user:
+            users_collection.update_one(
+                {'email': email},
+                {'$set': {
+                    'password': password,
+                    'verification_code': verification_code,
+                    'verification_code_expires': expires_at
+                }}
+            )
+            print(f"[注册] ✅ 用户 {email} 验证码已更新")
+        else:
+            pending_user = {
+                'email': email,
+                'password': password,
+                'verification_code': verification_code,
+                'verification_code_expires': expires_at,
+                'createdAt': datetime.now(timezone.utc)
+            }
+            users_collection.insert_one(pending_user)
+            print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
         
-        users_collection.insert_one(pending_user)
-        
-        print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
         return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
         
     except Exception as e:
         print(f"[注册] ❌ 注册失败: {str(e)}")
         return jsonify({'error': 'Registration failed'}), 500
+
+@app.route('/api/auth/verify', methods=['POST', 'OPTIONS'])
+def verify():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+    
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        code = data.get('code')
+        
+        print(f"[验证] 收到验证请求: email={email}, code={code}")
+        
+        if not email or not code:
+            print(f"[验证] ❌ 参数缺失: email={email}, code={code}")
+            return jsonify({'error': 'Email and verification code are required'}), 400
+        
+        user = users_collection.find_one({'email': email})
+        
+        if not user:
+            print(f"[验证] ❌ 用户不存在: {email}")
+            return jsonify({'error': 'User not found'}), 404
+        
+        stored_code = user.get('verification_code')
+        expires_at = user.get('verification_code_expires')
+        
+        print(f"[验证] 数据库存储: stored_code={stored_code}, type={type(stored_code)}")
+        print(f"[验证] 前端传入: code={code}, type={type(code)}")
+        print(f"[验证] 过期时间: {expires_at}, type={type(expires_at)}")
+        
+        code_str = str(code).strip()
+        stored_code_str = str(stored_code).strip() if stored_code else ''
+        
+        print(f"[验证] 比较: code_str='{code_str}' vs stored_code_str='{stored_code_str}'")
+        
+        if code_str != stored_code_str:
+            print(f"[验证] ❌ 验证码不匹配")
+            return jsonify({'error': 'Invalid verification code'}), 400
+        
+        if expires_at:
+            if isinstance(expires_at, datetime):
+                now = datetime.now(timezone.utc)
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                print(f"[验证] 时间比较: now={now}, expires_at={expires_at}")
+                if now > expires_at:
+                    print(f"[验证] ❌ 验证码已过期")
+                    return jsonify({'error': 'Verification code expired'}), 400
+            else:
+                print(f"[验证] ⚠️ expires_at 类型异常: {type(expires_at)}")
+        
+        users_collection.update_one(
+            {'email': email},
+            {'$set': {'is_verified': True, 'verified_at': datetime.now(timezone.utc)}}
+        )
+        
+        print(f"[验证] ✅ 用户 {email} 验证成功")
+        return jsonify({'status': 'success', 'message': 'Verification successful'}), 200
+        
+    except Exception as e:
+        print(f"[验证] ❌ 验证失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Verification failed'}), 500
 
 @app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
 def login():
