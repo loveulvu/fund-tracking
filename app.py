@@ -24,26 +24,21 @@ EMAIL_PORT = os.environ.get("EMAIL_PORT")
 
 def send_verification_email(email, code):
     """
-    使用 SMTP 发送验证码邮件
-    - 设置 5 秒超时防止 Railway 卡死
-    - 返回 (success: bool, error_msg: str)
+    使用 SMTP STARTTLS 模式发送验证码邮件
+    - 返回 True/False
     """
-    if not EMAIL_SENDER or not EMAIL_PASSWORD or not EMAIL_SMTP or not EMAIL_PORT:
-        error_msg = "邮件服务配置不完整"
-        print(f"[邮件] ⚠️ {error_msg}")
-        return False, error_msg
+    if not EMAIL_PASSWORD or not EMAIL_SMTP or not EMAIL_PORT:
+        print(f"[邮件] ⚠️ 邮件服务配置不完整")
+        return False
     
     try:
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
-        import socket
-        
-        socket.setdefaulttimeout(5)
         
         msg = MIMEMultipart('alternative')
         msg['Subject'] = "您的验证码 - Fund Tracking"
-        msg['From'] = EMAIL_SENDER
+        msg['From'] = EMAIL_SENDER or "noreply@fundtracking.online"
         msg['To'] = email
         
         html_content = f"""
@@ -61,16 +56,17 @@ def send_verification_email(email, code):
         html_part = MIMEText(html_content, 'html', 'utf-8')
         msg.attach(html_part)
         
-        with smtplib.SMTP_SSL(EMAIL_SMTP, int(EMAIL_PORT), timeout=5) as server:
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_SENDER, email, msg.as_string())
+        server = smtplib.SMTP(EMAIL_SMTP, int(EMAIL_PORT), timeout=15)
+        server.starttls()
+        server.login("resend", EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
         
         print(f"[邮件] ✅ 验证码已发送至 {email}")
-        return True, None
+        return True
     except Exception as e:
-        error_msg = f"邮件服务连接超时或失败: {str(e)}"
-        print(f"[邮件] ❌ 发送异常: {error_msg}")
-        return False, error_msg
+        print(f"[邮件] ❌ 彻底失败: {str(e)}")
+        return False
 
 # 2. 全局数据库对象占位
 db = None
@@ -668,7 +664,7 @@ def add_to_watchlist():
             'fundCode': fund_code,
             'fundName': fund_name,
             'alertThreshold': threshold,
-            'addedAt': datetime.utcnow()
+            'addedAt': datetime.now(timezone.utc)
         }
         
         watchlist_collection.insert_one(watchlist_item)
@@ -794,26 +790,27 @@ def register():
         
         import random
         verification_code = str(random.randint(100000, 999999))
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        success = send_verification_email(email, verification_code)
+        
+        if not success:
+            print(f"[注册] ❌ 用户 {email} 邮件发送失败，拒绝注册")
+            return jsonify({'error': '邮件服务通讯失败，请检查配置或稍后重试'}), 500
+        
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
         
         pending_user = {
             'email': email,
             'password': password,
             'verification_code': verification_code,
             'verification_code_expires': expires_at,
-            'createdAt': datetime.utcnow()
+            'createdAt': datetime.now(timezone.utc)
         }
         
         users_collection.insert_one(pending_user)
         
-        email_sent = send_verification_email(email, verification_code)
-        
-        if email_sent:
-            print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
-            return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
-        else:
-            print(f"[注册] ⚠️ 用户 {email} 注册成功，但邮件发送失败，验证码: {verification_code}")
-            return jsonify({'status': 'success', 'message': 'Registration successful. Please contact support for verification code.'}), 200
+        print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
+        return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
         
     except Exception as e:
         print(f"[注册] ❌ 注册失败: {str(e)}")
@@ -840,7 +837,7 @@ def login():
         payload = {
             'userId': str(user['_id']),
             'email': email,
-            'exp': datetime.utcnow() + timedelta(hours=24)
+            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
         }
         
         token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
