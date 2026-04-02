@@ -307,7 +307,7 @@ def token_required(f):
 def send_verification_email(to_email, code):
     """
     使用 Resend API 发送验证码邮件
-    发件人必须为 no-reply@send.fundtracking.online
+    发件人必须为 FundTracking <no-reply@fundtracking.online>
     """
     print(f"[邮件] 开始发送验证码到 {to_email}")
     
@@ -320,7 +320,7 @@ def send_verification_email(to_email, code):
         print("[邮件] 正在通过 Resend API 发送...")
         
         params = {
-            "from": "no-reply@fundtracking.online",
+            "from": "FundTracking <no-reply@fundtracking.online>",
             "to": [to_email],
             "subject": "基金追踪系统 - 邮箱验证码",
             "html": f'''
