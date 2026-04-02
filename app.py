@@ -52,26 +52,16 @@ DEFAULT_FUND_CODES = [
 ]
 
 SEED_FUNDS = [
-    {"code": "000001", "name": "华夏成长"},
-    {"code": "006030", "name": "华夏中证500ETF联接A"},
-    {"code": "110022", "name": "易方达消费行业"},
-    {"code": "161725", "name": "招商中证白酒指数"},
-    {"code": "110011", "name": "易方达中小盘"},
     {"code": "008540", "name": "华夏科技创新A"},
+    {"code": "012414", "name": "华夏中证新能源汽车ETF联接A"},
+    {"code": "001887", "name": "华夏沪深300指数增强A"},
+    {"code": "005303", "name": "华夏中证500指数增强A"},
+    {"code": "588000", "name": "华夏上证科创板50成份ETF"},
+    {"code": "161128", "name": "易方达中证海外中国互联网50ETF"},
     {"code": "510300", "name": "华泰柏瑞沪深300ETF"},
-    {"code": "510500", "name": "华夏中证500ETF"},
-    {"code": "159915", "name": "易方达创业板ETF"},
-    {"code": "159919", "name": "嘉实沪深300ETF"},
-    {"code": "000011", "name": "华夏大盘精选"},
-    {"code": "000031", "name": "华夏复兴"},
-    {"code": "000041", "name": "华夏优势增长"},
-    {"code": "000051", "name": "华夏回报"},
-    {"code": "000061", "name": "华夏回报二号"},
-    {"code": "000071", "name": "华夏红利"},
-    {"code": "000081", "name": "华夏策略精选"},
-    {"code": "000091", "name": "华夏平稳增长"},
-    {"code": "000101", "name": "华夏蓝筹核心"},
-    {"code": "000111", "name": "华夏经典配置"}
+    {"code": "161725", "name": "招商中证白酒指数(LOF)A"},
+    {"code": "001607", "name": "中欧医疗健康混合A"},
+    {"code": "004243", "name": "易方达信息产业混合"}
 ]
 
 def init_seed_funds():
@@ -83,6 +73,10 @@ def init_seed_funds():
         return
     
     try:
+        print("[种子基金] 开始清理旧的种子基金数据...")
+        result = collection.delete_many({"is_seed": True})
+        print(f"[种子基金] 已删除 {result.deleted_count} 条旧数据，准备重新初始化")
+        
         initialized_count = 0
         updated_count = 0
         refreshed_count = 0
@@ -349,7 +343,27 @@ def get_fund_info(fund_code):
         except Exception as e:
             print(f"[{fund_code}] 主页获取失败: {str(e)}")
         
+        if 'week_growth' not in data_item:
+            data_item['week_growth'] = 0.0
+            print(f"[{fund_code}] 近1周数据缺失，使用默认值 0.0")
+        if 'month_growth' not in data_item:
+            data_item['month_growth'] = 0.0
+            print(f"[{fund_code}] 近1月数据缺失，使用默认值 0.0")
+        if 'three_month_growth' not in data_item:
+            data_item['three_month_growth'] = 0.0
+            print(f"[{fund_code}] 近3月数据缺失，使用默认值 0.0")
+        if 'six_month_growth' not in data_item:
+            data_item['six_month_growth'] = 0.0
+            print(f"[{fund_code}] 近6月数据缺失，使用默认值 0.0")
+        if 'year_growth' not in data_item:
+            data_item['year_growth'] = 0.0
+            print(f"[{fund_code}] 近1年数据缺失，使用默认值 0.0")
+        if 'three_year_growth' not in data_item:
+            data_item['three_year_growth'] = 0.0
+            print(f"[{fund_code}] 近3年数据缺失，使用默认值 0.0")
+        
         print(f"[{fund_code}] 获取完成: {data_item.get('fund_name', '未知')}")
+        print(f"[{fund_code}] 数据完整性检查: {list(data_item.keys())}")
         return data_item
         
     except requests.exceptions.Timeout:
