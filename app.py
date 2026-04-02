@@ -188,6 +188,82 @@ def get_fund_info(fund_code):
             print(f"[{fund_code}] API 获取失败: {str(e)}")
         
         try:
+            rate_url = f"http://api.fund.eastmoney.com/tzzs/{fund_code}.js"
+            response = requests.get(rate_url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
+            
+            if response.status_code == 200 and response.text:
+                rate_text = response.text
+                if 'tzzs' in rate_text:
+                    json_str = rate_text.replace('tzzs(', '').replace(');', '')
+                    rate_data = json.loads(json_str)
+                    
+                    if 'syl' in rate_data:
+                        syl_data = rate_data['syl']
+                        if len(syl_data) >= 6:
+                            try:
+                                data_item['week_growth'] = float(syl_data[0]) if syl_data[0] else 0
+                                data_item['month_growth'] = float(syl_data[1]) if syl_data[1] else 0
+                                data_item['three_month_growth'] = float(syl_data[2]) if syl_data[2] else 0
+                                data_item['six_month_growth'] = float(syl_data[3]) if syl_data[3] else 0
+                                data_item['year_growth'] = float(syl_data[4]) if syl_data[4] else 0
+                                data_item['three_year_growth'] = float(syl_data[5]) if syl_data[5] else 0
+                                print(f"[{fund_code}] 从收益API获取数据成功")
+                            except Exception as e:
+                                print(f"[{fund_code}] 收益数据解析失败: {str(e)}")
+        except Exception as e:
+            print(f"[{fund_code}] 收益API获取失败: {str(e)}")
+        
+        try:
+            f10_url = f"http://fundf10.eastmoney.com/jjjz_{fund_code}.html"
+            response = requests.get(f10_url, headers=headers, timeout=3)
+            response.encoding = 'utf-8'
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                if 'fund_name' not in data_item:
+                    fund_name_elem = soup.find('a', class_='funCur-FundName')
+                    if fund_name_elem:
+                        data_item['fund_name'] = fund_name_elem.text.strip()
+                
+                rate_table = soup.find('table', class_='w782 comm ssdd')
+                if rate_table:
+                    rows = rate_table.find_all('tr')
+                    for row in rows:
+                        cells = row.find_all('td')
+                        if len(cells) >= 2:
+                            label = cells[0].text.strip()
+                            value_cell = cells[1]
+                            value_text = value_cell.text.strip().replace('%', '')
+                            
+                            try:
+                                if '近1周' in label and 'week_growth' not in data_item:
+                                    data_item['week_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近1周: {value_text}%")
+                                elif '近1月' in label and 'month_growth' not in data_item:
+                                    data_item['month_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近1月: {value_text}%")
+                                elif '近3月' in label and 'three_month_growth' not in data_item:
+                                    data_item['three_month_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近3月: {value_text}%")
+                                elif '近6月' in label and 'six_month_growth' not in data_item:
+                                    data_item['six_month_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近6月: {value_text}%")
+                                elif '近1年' in label and 'year_growth' not in data_item:
+                                    data_item['year_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近1年: {value_text}%")
+                                elif '近3年' in label and 'three_year_growth' not in data_item:
+                                    data_item['three_year_growth'] = float(value_text)
+                                    print(f"[{fund_code}] F10-近3年: {value_text}%")
+                            except Exception as e:
+                                print(f"[{fund_code}] F10数据解析失败: {str(e)}")
+                
+                print(f"[{fund_code}] 从F10页面获取数据成功")
+        except Exception as e:
+            print(f"[{fund_code}] F10页面获取失败: {str(e)}")
+        
+        try:
             url = f"https://fund.eastmoney.com/{fund_code}.html"
             response = requests.get(url, headers=headers, timeout=3)
             response.encoding = 'utf-8'
