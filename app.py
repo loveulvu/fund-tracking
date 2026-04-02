@@ -73,6 +73,7 @@ db = None
 collection = None
 watchlist_collection = None
 users_collection = None
+pending_users_collection = None
 db_error_message = None
 
 # 3. 柔性连接逻辑：即使失败也不触发进程崩溃，保证 Railway 能顺利启动
@@ -86,6 +87,7 @@ else:
         collection = db['fund_data']
         watchlist_collection = db['watchlists']
         users_collection = db['users']
+        pending_users_collection = db['pending_users']
         client.admin.command('ping')
         print(f"Flask 正在连接数据库: {db.name}")
         print("MongoDB 连接成功。")
@@ -801,27 +803,21 @@ def register():
         
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
         
-        if existing_user:
-            users_collection.update_one(
-                {'email': email},
-                {'$set': {
-                    'password': password,
-                    'verification_code': verification_code,
-                    'verification_code_expires': expires_at
-                }}
-            )
-            print(f"[注册] ✅ 用户 {email} 验证码已更新")
-        else:
-            pending_user = {
-                'email': email,
-                'password': password,
-                'verification_code': verification_code,
-                'verification_code_expires': expires_at,
-                'createdAt': datetime.now(timezone.utc)
-            }
-            users_collection.insert_one(pending_user)
-            print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
+        pending_user = {
+            'email': email,
+            'password': password,
+            'verification_code': verification_code,
+            'verification_code_expires': expires_at,
+            'createdAt': datetime.now(timezone.utc)
+        }
         
+        pending_users_collection.update_one(
+            {'email': email},
+            {'$set': pending_user},
+            upsert=True
+        )
+        
+        print(f"[注册] ✅ 用户 {email} 验证码已发送，存入pending_users")
         return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
         
     except Exception as e:
@@ -844,14 +840,14 @@ def verify():
             print(f"[验证] ❌ 参数缺失: email={email}, code={code}")
             return jsonify({'error': 'Email and verification code are required'}), 400
         
-        user = users_collection.find_one({'email': email})
+        pending_user = pending_users_collection.find_one({'email': email})
         
-        if not user:
-            print(f"[验证] ❌ 用户不存在: {email}")
-            return jsonify({'error': 'User not found'}), 404
+        if not pending_user:
+            print(f"[验证] ❌ 待验证用户不存在: {email}")
+            return jsonify({'error': 'User not found or registration expired'}), 404
         
-        stored_code = user.get('verification_code')
-        expires_at = user.get('verification_code_expires')
+        stored_code = pending_user.get('verification_code')
+        expires_at = pending_user.get('verification_code_expires')
         
         print(f"[验证] 数据库存储: stored_code={stored_code}, type={type(stored_code)}")
         print(f"[验证] 前端传入: code={code}, type={type(code)}")
@@ -878,13 +874,33 @@ def verify():
             else:
                 print(f"[验证] ⚠️ expires_at 类型异常: {type(expires_at)}")
         
-        users_collection.update_one(
-            {'email': email},
-            {'$set': {'is_verified': True, 'verified_at': datetime.now(timezone.utc)}}
-        )
+        verified_user = {
+            'email': email,
+            'password': pending_user.get('password'),
+            'is_verified': True,
+            'verified_at': datetime.now(timezone.utc),
+            'createdAt': pending_user.get('createdAt', datetime.now(timezone.utc))
+        }
         
-        print(f"[验证] ✅ 用户 {email} 验证成功")
-        return jsonify({'status': 'success', 'message': 'Verification successful'}), 200
+        result = users_collection.insert_one(verified_user)
+        user_id = str(result.inserted_id)
+        
+        pending_users_collection.delete_one({'email': email})
+        
+        payload = {
+            'userId': user_id,
+            'email': email,
+            'exp': datetime.now(timezone.utc) + timedelta(hours=24)
+        }
+        token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+        
+        print(f"[验证] ✅ 用户 {email} 验证成功，已写入users集合")
+        return jsonify({
+            'status': 'success',
+            'message': 'Verification successful',
+            'token': token,
+            'email': email
+        }), 200
         
     except Exception as e:
         print(f"[验证] ❌ 验证失败: {str(e)}")
