@@ -111,9 +111,9 @@ def init_seed_funds():
                     
                     if fund_data:
                         fund_data["is_seed"] = True
-                        collection.update_one(
+                        collection.replace_one(
                             {"fund_code": seed["code"]},
-                            {"$set": fund_data}
+                            fund_data
                         )
                         refreshed_count += 1
                         print(f"[种子基金] ✅ {seed['code']} 数据更新成功")
@@ -385,7 +385,7 @@ def update_seed_funds():
         if data:
             try:
                 data["is_seed"] = True
-                collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
+                collection.replace_one({"fund_code": fund_code}, data, upsert=True)
                 updated.append(fund_code)
                 print(f"[{fund_code}] ✅ 数据库更新成功")
             except Exception as e:
