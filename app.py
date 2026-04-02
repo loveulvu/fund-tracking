@@ -2,7 +2,8 @@ import os
 import time
 import requests
 import traceback
-from bs4 import BeautifulSoup
+import json
+import re
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -44,13 +45,6 @@ else:
         print("完整错误堆栈:")
         print(traceback.format_exc())
 
-DEFAULT_FUND_CODES = [
-    "000001", "006030", "110022", "161725", "110011",
-    "008540", "510300", "510500", "159915", "159919",
-    "000011", "000031", "000041", "000051", "000061",
-    "000071", "000081", "000091", "000101", "000111"
-]
-
 SEED_FUNDS = [
     {"code": "008540", "name": "华夏科技创新A"},
     {"code": "012414", "name": "华夏中证新能源汽车ETF联接A"},
@@ -64,9 +58,43 @@ SEED_FUNDS = [
     {"code": "004243", "name": "易方达信息产业混合"}
 ]
 
+DEFAULT_FUND_CODES = [fund["code"] for fund in SEED_FUNDS]
+
+def validate_fund_data(fund_data, expected_code, expected_name_hint=None):
+    """
+    严格验证基金数据的有效性
+    返回: (is_valid, reason)
+    """
+    if not fund_data:
+        return False, "数据为空"
+    
+    fund_name = fund_data.get('fund_name', '')
+    
+    if fund_name == '未知' or not fund_name:
+        return False, "基金名称为空或未知"
+    
+    if fund_data.get('fund_code') != expected_code:
+        return False, f"基金代码不匹配: 期望 {expected_code}, 实际 {fund_data.get('fund_code')}"
+    
+    critical_fields = ['net_value', 'day_growth', 'week_growth', 'month_growth']
+    missing_fields = [f for f in critical_fields if f not in fund_data]
+    if missing_fields:
+        return False, f"缺少关键字段: {missing_fields}"
+    
+    all_zero = all(
+        fund_data.get(field, 0) == 0 
+        for field in ['week_growth', 'month_growth', 'year_growth']
+    )
+    
+    if all_zero and fund_name == '未知':
+        return False, "所有涨幅为0且基金名称未知，数据可能无效"
+    
+    return True, "数据有效"
+
 def init_seed_funds():
     """
     初始化种子基金，标记为 is_seed=True，并获取完整数据
+    包含严格的数据验证，防止错误数据覆盖正确数据
     """
     if collection is None:
         print("[种子基金] 数据库未初始化，跳过种子基金初始化")
@@ -78,303 +106,176 @@ def init_seed_funds():
         print(f"[种子基金] 已删除 {result.deleted_count} 条旧数据，准备重新初始化")
         
         initialized_count = 0
-        updated_count = 0
-        refreshed_count = 0
+        failed_count = 0
         
         for seed in SEED_FUNDS:
-            existing = collection.find_one({"fund_code": seed["code"]})
+            print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的数据...")
+            fund_data = get_fund_info(seed["code"])
             
-            if existing:
-                needs_update = False
+            is_valid, reason = validate_fund_data(fund_data, seed["code"], seed["name"])
+            
+            if is_valid:
+                fund_data["is_seed"] = True
                 
-                if 'net_value' not in existing or existing.get('net_value') is None:
-                    needs_update = True
-                    print(f"[种子基金] {seed['code']} 缺少净值数据，需要更新")
+                existing = collection.find_one({"fund_code": seed["code"]})
                 
-                if 'day_growth' not in existing or existing.get('day_growth') is None:
-                    needs_update = True
-                    print(f"[种子基金] {seed['code']} 缺少日涨幅数据，需要更新")
-                
-                if 'month_growth' not in existing or existing.get('month_growth') is None:
-                    needs_update = True
-                    print(f"[种子基金] {seed['code']} 缺少月收益数据，需要更新")
-                
-                if needs_update:
-                    print(f"[种子基金] 正在更新 {seed['code']} ({seed['name']}) 的完整数据...")
-                    fund_data = get_fund_info(seed["code"])
+                if existing:
+                    existing_valid, _ = validate_fund_data(existing, seed["code"])
                     
-                    if fund_data:
-                        fund_data["is_seed"] = True
+                    if not existing_valid:
                         collection.replace_one(
                             {"fund_code": seed["code"]},
                             fund_data
                         )
-                        refreshed_count += 1
-                        print(f"[种子基金] ✅ {seed['code']} 数据更新成功")
+                        print(f"[种子基金] ✅ {seed['code']} 数据替换成功（旧数据无效）")
                     else:
                         collection.update_one(
                             {"fund_code": seed["code"]},
                             {"$set": {"is_seed": True}}
                         )
-                        print(f"[种子基金] ⚠️ {seed['code']} 数据更新失败，仅更新标记")
-                    
-                    time.sleep(0.5)
+                        print(f"[种子基金] ✅ {seed['code']} 已有有效数据，仅更新标记")
                 else:
+                    collection.insert_one(fund_data)
+                    print(f"[种子基金] ✅ {seed['code']} 数据插入成功: {fund_data.get('fund_name')}")
+                
+                initialized_count += 1
+            else:
+                failed_count += 1
+                print(f"[种子基金] ❌ {seed['code']} 数据验证失败: {reason}")
+                
+                existing = collection.find_one({"fund_code": seed["code"]})
+                if existing:
                     collection.update_one(
                         {"fund_code": seed["code"]},
                         {"$set": {"is_seed": True}}
                     )
-                    updated_count += 1
-            else:
-                print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的完整数据...")
-                fund_data = get_fund_info(seed["code"])
-                
-                if fund_data:
-                    fund_data["is_seed"] = True
-                    collection.insert_one(fund_data)
-                    initialized_count += 1
-                    print(f"[种子基金] ✅ {seed['code']} 数据获取成功")
+                    print(f"[种子基金] ⚠️ {seed['code']} 保留现有数据，仅更新标记")
                 else:
                     collection.insert_one({
                         "fund_code": seed["code"],
                         "fund_name": seed["name"],
                         "is_seed": True,
-                        "update_time": int(time.time())
+                        "update_time": int(time.time()),
+                        "week_growth": 0.0,
+                        "month_growth": 0.0,
+                        "year_growth": 0.0,
+                        "day_growth": 0.0,
+                        "net_value": 0.0
                     })
-                    initialized_count += 1
-                    print(f"[种子基金] ⚠️ {seed['code']} 使用基础数据")
-                
-                time.sleep(0.5)
+                    print(f"[种子基金] ⚠️ {seed['code']} 使用基础数据模板")
+            
+            time.sleep(0.5)
         
-        print(f"[种子基金] 初始化完成: 新增 {initialized_count} 个，更新 {updated_count} 个，刷新 {refreshed_count} 个")
+        print(f"[种子基金] 初始化完成: 成功 {initialized_count} 个，失败 {failed_count} 个")
     except Exception as e:
         print(f"[种子基金] 初始化失败: {str(e)}")
+        print(traceback.format_exc())
 
 def get_fund_info(fund_code):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    """
+    纯 API 驱动的基金信息获取函数
+    数据源：
+    1. fundgz.1234567.com.cn - 获取实时估值和日涨幅
+    2. fundmobapi.eastmoney.com - 获取基金详情和历史涨幅
+    """
+    headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers_mobile = {
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 10; SM-G981B Build/QP1A.190711.020)',
+        'Host': 'fundmobapi.eastmoney.com',
+        'Connection': 'Keep-Alive',
+    }
     
-    print(f"[{fund_code}] 开始获取基金信息...")
+    print(f"[{fund_code}] 开始获取基金信息（纯API模式）...")
+    
+    data_item = {
+        "fund_code": fund_code,
+        "update_time": int(time.time())
+    }
     
     try:
-        data_item = {
-            "fund_code": fund_code,
-            "update_time": int(time.time())
-        }
+        api_url = f"https://fundgz.1234567.com.cn/js/{fund_code}.js"
+        response = requests.get(api_url, headers=headers_web, timeout=5)
+        response.encoding = 'utf-8'
         
-        try:
-            api_url = f"http://fundgz.1234567.com.cn/js/{fund_code}.js"
-            response = requests.get(api_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
+        if response.status_code == 200 and 'jsonpgz' in response.text:
+            json_str = response.text.replace('jsonpgz(', '').replace(');', '')
+            fund_data = json.loads(json_str)
             
-            jsonp_str = response.text
-            if jsonp_str and 'jsonpgz' in jsonp_str:
-                json_str = jsonp_str.replace('jsonpgz(', '').replace(');', '')
-                import json
-                fund_data = json.loads(json_str)
-                
-                data_item['fund_name'] = fund_data.get('name', '未知')
-                data_item['net_value'] = float(fund_data.get('dwjz', 0))
-                data_item['net_value_date'] = fund_data.get('jzrq', '')
-                data_item['day_growth'] = float(fund_data.get('gszzl', 0))
-                
-                print(f"[{fund_code}] 从 API 获取基本信息成功: {data_item['fund_name']}")
-        except Exception as e:
-            print(f"[{fund_code}] API 获取失败: {str(e)}")
-        
-        try:
-            rate_url = f"http://api.fund.eastmoney.com/tzzs/{fund_code}.js"
-            response = requests.get(rate_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
+            data_item['fund_name'] = fund_data.get('name', '未知')
+            data_item['net_value'] = float(fund_data.get('dwjz', 0)) if fund_data.get('dwjz') else 0.0
+            data_item['net_value_date'] = fund_data.get('jzrq', '')
+            data_item['day_growth'] = float(fund_data.get('gszzl', 0)) if fund_data.get('gszzl') else 0.0
             
-            if response.status_code == 200 and response.text:
-                rate_text = response.text
-                if 'tzzs' in rate_text:
-                    json_str = rate_text.replace('tzzs(', '').replace(');', '')
-                    rate_data = json.loads(json_str)
-                    
-                    if 'syl' in rate_data:
-                        syl_data = rate_data['syl']
-                        if len(syl_data) >= 6:
-                            try:
-                                data_item['week_growth'] = float(syl_data[0]) if syl_data[0] else 0
-                                data_item['month_growth'] = float(syl_data[1]) if syl_data[1] else 0
-                                data_item['three_month_growth'] = float(syl_data[2]) if syl_data[2] else 0
-                                data_item['six_month_growth'] = float(syl_data[3]) if syl_data[3] else 0
-                                data_item['year_growth'] = float(syl_data[4]) if syl_data[4] else 0
-                                data_item['three_year_growth'] = float(syl_data[5]) if syl_data[5] else 0
-                                print(f"[{fund_code}] 从收益API获取数据成功")
-                            except Exception as e:
-                                print(f"[{fund_code}] 收益数据解析失败: {str(e)}")
-        except Exception as e:
-            print(f"[{fund_code}] 收益API获取失败: {str(e)}")
-        
-        try:
-            f10_url = f"http://fundf10.eastmoney.com/jjjz_{fund_code}.html"
-            response = requests.get(f10_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                if 'fund_name' not in data_item:
-                    fund_name_elem = soup.find('a', class_='funCur-FundName')
-                    if fund_name_elem:
-                        data_item['fund_name'] = fund_name_elem.text.strip()
-                
-                rate_table = soup.find('table', class_='w782 comm ssdd')
-                if rate_table:
-                    rows = rate_table.find_all('tr')
-                    for row in rows:
-                        cells = row.find_all('td')
-                        if len(cells) >= 2:
-                            label = cells[0].text.strip()
-                            value_cell = cells[1]
-                            value_text = value_cell.text.strip().replace('%', '')
-                            
-                            try:
-                                if '近1周' in label and 'week_growth' not in data_item:
-                                    data_item['week_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近1周: {value_text}%")
-                                elif '近1月' in label and 'month_growth' not in data_item:
-                                    data_item['month_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近1月: {value_text}%")
-                                elif '近3月' in label and 'three_month_growth' not in data_item:
-                                    data_item['three_month_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近3月: {value_text}%")
-                                elif '近6月' in label and 'six_month_growth' not in data_item:
-                                    data_item['six_month_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近6月: {value_text}%")
-                                elif '近1年' in label and 'year_growth' not in data_item:
-                                    data_item['year_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近1年: {value_text}%")
-                                elif '近3年' in label and 'three_year_growth' not in data_item:
-                                    data_item['three_year_growth'] = float(value_text)
-                                    print(f"[{fund_code}] F10-近3年: {value_text}%")
-                            except Exception as e:
-                                print(f"[{fund_code}] F10数据解析失败: {str(e)}")
-                
-                print(f"[{fund_code}] 从F10页面获取数据成功")
-        except Exception as e:
-            print(f"[{fund_code}] F10页面获取失败: {str(e)}")
-        
-        try:
-            url = f"https://fund.eastmoney.com/{fund_code}.html"
-            response = requests.get(url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            if 'fund_name' not in data_item:
-                fund_name = soup.find('span', class_='funCur-FundName')
-                data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
-            
-            if 'net_value' not in data_item:
-                net_value_elem = soup.find('dl', class_='dataItem02')
-                if net_value_elem:
-                    net_value = net_value_elem.find('span', class_='ui-font-large')
-                    if net_value:
-                        data_item['net_value'] = float(net_value.text.strip())
-                    
-                    net_value_date = net_value_elem.find('dt')
-                    if net_value_date:
-                        data_item['net_value_date'] = net_value_date.text.strip()
-            
-            if 'day_growth' not in data_item:
-                day_growth_elem = soup.find('dl', class_='dataItem03')
-                if day_growth_elem:
-                    day_growth = day_growth_elem.find('span', class_='ui-font-large')
-                    if day_growth:
-                        growth_text = day_growth.text.strip().replace('%', '')
-                        try:
-                            data_item['day_growth'] = float(growth_text)
-                        except:
-                            pass
-            
-            data_items = soup.find_all('div', class_='dataOfFund')
-            print(f"[{fund_code}] 找到 {len(data_items)} 个数据区域")
-            
-            for item in data_items:
-                labels = item.find_all('label')
-                for label in labels:
-                    text = label.text.strip()
-                    if '近1周' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['week_growth'] = float(value)
-                            print(f"[{fund_code}] 近1周: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近1周解析失败: {str(e)}")
-                    elif '近1月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['month_growth'] = float(value)
-                            print(f"[{fund_code}] 近1月: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近1月解析失败: {str(e)}")
-                    elif '近3月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['three_month_growth'] = float(value)
-                            print(f"[{fund_code}] 近3月: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近3月解析失败: {str(e)}")
-                    elif '近6月' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['six_month_growth'] = float(value)
-                            print(f"[{fund_code}] 近6月: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近6月解析失败: {str(e)}")
-                    elif '近1年' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['year_growth'] = float(value)
-                            print(f"[{fund_code}] 近1年: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近1年解析失败: {str(e)}")
-                    elif '近3年' in text:
-                        try:
-                            value = label.find_next('span').text.strip().replace('%', '')
-                            data_item['three_year_growth'] = float(value)
-                            print(f"[{fund_code}] 近3年: {value}%")
-                        except Exception as e:
-                            print(f"[{fund_code}] 近3年解析失败: {str(e)}")
-            
-            print(f"[{fund_code}] 从主页获取收益数据成功")
-        except Exception as e:
-            print(f"[{fund_code}] 主页获取失败: {str(e)}")
-        
-        if 'week_growth' not in data_item:
-            data_item['week_growth'] = 0.0
-            print(f"[{fund_code}] 近1周数据缺失，使用默认值 0.0")
-        if 'month_growth' not in data_item:
-            data_item['month_growth'] = 0.0
-            print(f"[{fund_code}] 近1月数据缺失，使用默认值 0.0")
-        if 'three_month_growth' not in data_item:
-            data_item['three_month_growth'] = 0.0
-            print(f"[{fund_code}] 近3月数据缺失，使用默认值 0.0")
-        if 'six_month_growth' not in data_item:
-            data_item['six_month_growth'] = 0.0
-            print(f"[{fund_code}] 近6月数据缺失，使用默认值 0.0")
-        if 'year_growth' not in data_item:
-            data_item['year_growth'] = 0.0
-            print(f"[{fund_code}] 近1年数据缺失，使用默认值 0.0")
-        if 'three_year_growth' not in data_item:
-            data_item['three_year_growth'] = 0.0
-            print(f"[{fund_code}] 近3年数据缺失，使用默认值 0.0")
-        
-        print(f"[{fund_code}] 获取完成: {data_item.get('fund_name', '未知')}")
-        print(f"[{fund_code}] 数据完整性检查: {list(data_item.keys())}")
-        return data_item
-        
-    except requests.exceptions.Timeout:
-        print(f"[{fund_code}] ❌ 请求超时")
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"[{fund_code}] ❌ 请求异常: {str(e)}")
-        return None
+            print(f"[{fund_code}] fundgz API: {data_item.get('fund_name')} | 净值: {data_item.get('net_value')} | 日涨幅: {data_item.get('day_growth')}%")
+        else:
+            print(f"[{fund_code}] fundgz API 返回异常: HTTP {response.status_code}")
     except Exception as e:
-        print(f"[{fund_code}] ❌ 未知错误: {str(e)}")
-        return None
+        print(f"[{fund_code}] fundgz API 获取失败: {str(e)}")
+    
+    try:
+        base_info_url = f"http://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE={fund_code}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0"
+        response = requests.get(base_info_url, headers=headers_mobile, timeout=5)
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            if result.get('Success') and result.get('Datas'):
+                fund_info = result['Datas']
+                
+                if 'fund_name' not in data_item or data_item.get('fund_name') == '未知':
+                    data_item['fund_name'] = fund_info.get('SHORTNAME', '未知')
+                
+                if 'net_value' not in data_item or data_item.get('net_value') == 0:
+                    dwjz = fund_info.get('DWJZ')
+                    if dwjz:
+                        data_item['net_value'] = float(dwjz)
+                
+                data_item['fund_type'] = fund_info.get('FTYPE', '')
+                data_item['fund_company'] = fund_info.get('JJGS', '')
+                data_item['fund_manager'] = fund_info.get('JJJL', '')
+                data_item['fund_scale'] = fund_info.get('TOTALSCALE', '')
+                
+                syl_z = fund_info.get('SYL_Z')
+                syl_y = fund_info.get('SYL_Y')
+                syl_3y = fund_info.get('SYL_3Y')
+                syl_6y = fund_info.get('SYL_6Y')
+                syl_1n = fund_info.get('SYL_1N')
+                
+                if syl_z is not None:
+                    data_item['week_growth'] = float(syl_z)
+                if syl_y is not None:
+                    data_item['month_growth'] = float(syl_y)
+                if syl_3y is not None:
+                    data_item['three_month_growth'] = float(syl_3y)
+                if syl_6y is not None:
+                    data_item['six_month_growth'] = float(syl_6y)
+                if syl_1n is not None:
+                    data_item['year_growth'] = float(syl_1n)
+                
+                print(f"[{fund_code}] FundMNBaseInfo API: 周{data_item.get('week_growth', 'N/A')}% | 月{data_item.get('month_growth', 'N/A')}% | 年{data_item.get('year_growth', 'N/A')}%")
+            else:
+                print(f"[{fund_code}] FundMNBaseInfo API 无数据: {result.get('ErrMsg', 'Unknown error')}")
+        else:
+            print(f"[{fund_code}] FundMNBaseInfo API HTTP {response.status_code}")
+    except Exception as e:
+        print(f"[{fund_code}] FundMNBaseInfo API 获取失败: {str(e)}")
+    
+    growth_fields = ['week_growth', 'month_growth', 'three_month_growth', 'six_month_growth', 'year_growth', 'three_year_growth']
+    for field in growth_fields:
+        if field not in data_item:
+            data_item[field] = 0.0
+            print(f"[{fund_code}] {field} 缺失，使用默认值 0.0")
+    
+    if 'fund_name' not in data_item:
+        data_item['fund_name'] = '未知'
+    if 'net_value' not in data_item:
+        data_item['net_value'] = 0.0
+    if 'day_growth' not in data_item:
+        data_item['day_growth'] = 0.0
+    
+    print(f"[{fund_code}] ✅ 数据获取完成: {data_item.get('fund_name')}")
+    
+    return data_item
 
 init_seed_funds()
 
