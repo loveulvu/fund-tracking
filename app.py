@@ -76,32 +76,49 @@ SEED_FUNDS = [
 
 def init_seed_funds():
     """
-    初始化种子基金，标记为 is_seed=True
+    初始化种子基金，标记为 is_seed=True，并获取完整数据
     """
     if collection is None:
         print("[种子基金] 数据库未初始化，跳过种子基金初始化")
         return
     
     try:
+        initialized_count = 0
+        updated_count = 0
+        
         for seed in SEED_FUNDS:
             existing = collection.find_one({"fund_code": seed["code"]})
+            
             if existing:
                 collection.update_one(
                     {"fund_code": seed["code"]},
                     {"$set": {"is_seed": True}}
                 )
+                updated_count += 1
             else:
-                collection.insert_one({
-                    "fund_code": seed["code"],
-                    "fund_name": seed["name"],
-                    "is_seed": True,
-                    "update_time": int(time.time())
-                })
-        print(f"[种子基金] 已初始化 {len(SEED_FUNDS)} 个种子基金")
+                print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的完整数据...")
+                fund_data = get_fund_info(seed["code"])
+                
+                if fund_data:
+                    fund_data["is_seed"] = True
+                    collection.insert_one(fund_data)
+                    initialized_count += 1
+                    print(f"[种子基金] ✅ {seed['code']} 数据获取成功")
+                else:
+                    collection.insert_one({
+                        "fund_code": seed["code"],
+                        "fund_name": seed["name"],
+                        "is_seed": True,
+                        "update_time": int(time.time())
+                    })
+                    initialized_count += 1
+                    print(f"[种子基金] ⚠️ {seed['code']} 使用基础数据")
+                
+                time.sleep(0.5)
+        
+        print(f"[种子基金] 初始化完成: 新增 {initialized_count} 个，更新 {updated_count} 个")
     except Exception as e:
         print(f"[种子基金] 初始化失败: {str(e)}")
-
-init_seed_funds()
 
 def get_fund_info(fund_code):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -224,6 +241,8 @@ def get_fund_info(fund_code):
     except Exception as e:
         print(f"[{fund_code}] ❌ 未知错误: {str(e)}")
         return None
+
+init_seed_funds()
 
 def check_db_status():
     if db_error_message:
