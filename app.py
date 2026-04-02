@@ -45,8 +45,63 @@ else:
         print(traceback.format_exc())
 
 DEFAULT_FUND_CODES = [
-    "006030", "000001", "110022", "161725", "110011"
+    "000001", "006030", "110022", "161725", "110011",
+    "008540", "510300", "510500", "159915", "159919",
+    "000011", "000031", "000041", "000051", "000061",
+    "000071", "000081", "000091", "000101", "000111"
 ]
+
+SEED_FUNDS = [
+    {"code": "000001", "name": "华夏成长"},
+    {"code": "006030", "name": "华夏中证500ETF联接A"},
+    {"code": "110022", "name": "易方达消费行业"},
+    {"code": "161725", "name": "招商中证白酒指数"},
+    {"code": "110011", "name": "易方达中小盘"},
+    {"code": "008540", "name": "华夏科技创新A"},
+    {"code": "510300", "name": "华泰柏瑞沪深300ETF"},
+    {"code": "510500", "name": "华夏中证500ETF"},
+    {"code": "159915", "name": "易方达创业板ETF"},
+    {"code": "159919", "name": "嘉实沪深300ETF"},
+    {"code": "000011", "name": "华夏大盘精选"},
+    {"code": "000031", "name": "华夏复兴"},
+    {"code": "000041", "name": "华夏优势增长"},
+    {"code": "000051", "name": "华夏回报"},
+    {"code": "000061", "name": "华夏回报二号"},
+    {"code": "000071", "name": "华夏红利"},
+    {"code": "000081", "name": "华夏策略精选"},
+    {"code": "000091", "name": "华夏平稳增长"},
+    {"code": "000101", "name": "华夏蓝筹核心"},
+    {"code": "000111", "name": "华夏经典配置"}
+]
+
+def init_seed_funds():
+    """
+    初始化种子基金，标记为 is_seed=True
+    """
+    if collection is None:
+        print("[种子基金] 数据库未初始化，跳过种子基金初始化")
+        return
+    
+    try:
+        for seed in SEED_FUNDS:
+            existing = collection.find_one({"fund_code": seed["code"]})
+            if existing:
+                collection.update_one(
+                    {"fund_code": seed["code"]},
+                    {"$set": {"is_seed": True}}
+                )
+            else:
+                collection.insert_one({
+                    "fund_code": seed["code"],
+                    "fund_name": seed["name"],
+                    "is_seed": True,
+                    "update_time": int(time.time())
+                })
+        print(f"[种子基金] 已初始化 {len(SEED_FUNDS)} 个种子基金")
+    except Exception as e:
+        print(f"[种子基金] 初始化失败: {str(e)}")
+
+init_seed_funds()
 
 def get_fund_info(fund_code):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -244,14 +299,90 @@ def update_funds():
         "total": len(DEFAULT_FUND_CODES)
     })
 
+@app.route('/api/search_proxy')
+def search_proxy():
+    """
+    搜索代理接口：调用天天基金网的搜索API
+    """
+    query = request.args.get('query', '')
+    
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
+        search_url = f"http://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key={query}"
+        
+        response = requests.get(search_url, headers=headers, timeout=5)
+        response.encoding = 'utf-8'
+        
+        if response.status_code == 200:
+            import json
+            data = json.loads(response.text)
+            
+            if 'Datas' in data:
+                results = []
+                for item in data['Datas'][:20]:
+                    results.append({
+                        'fund_code': item.get('CODE', ''),
+                        'fund_name': item.get('NAME', ''),
+                        'fund_type': item.get('FUNDTYPE', ''),
+                        'fund_family': item.get('FUNDNAME', '')
+                    })
+                
+                print(f"[搜索代理] 查询 '{query}' 找到 {len(results)} 个结果")
+                return jsonify(results)
+            else:
+                return jsonify([])
+        else:
+            return jsonify({"error": "Failed to fetch search results"}), 500
+            
+    except requests.exceptions.Timeout:
+        print(f"[搜索代理] 查询 '{query}' 超时")
+        return jsonify({"error": "Search request timeout"}), 504
+    except Exception as e:
+        print(f"[搜索代理] 查询 '{query}' 失败: {str(e)}")
+        return jsonify({"error": f"Search failed: {str(e)}"}), 500
+
 @app.route('/api/funds')
 def get_funds():
     db_check = check_db_status()
     if db_check: return db_check
     
     try:
-        data = list(collection.find({}, {"_id": 0}))
-        return jsonify(data)
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        
+        watched_fund_codes = []
+        if token:
+            try:
+                data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+                current_user_id = data['userId']
+                watched_items = list(watchlist_collection.find({'userId': current_user_id}, {'fundCode': 1, '_id': 0}))
+                watched_fund_codes = [item['fundCode'] for item in watched_items]
+            except:
+                pass
+        
+        all_funds = list(collection.find({}, {"_id": 0}))
+        
+        for fund in all_funds:
+            if fund.get('fund_code') in watched_fund_codes:
+                fund['is_watched'] = True
+            else:
+                fund['is_watched'] = False
+        
+        sorted_funds = sorted(all_funds, key=lambda x: (
+            not x.get('is_watched', False),
+            not x.get('is_seed', False),
+            x.get('fund_code', '')
+        ))
+        
+        print(f"[基金列表] 返回 {len(sorted_funds)} 个基金，其中 {len(watched_fund_codes)} 个已关注")
+        return jsonify(sorted_funds)
     except Exception as e:
         print(f"获取基金列表失败: {str(e)}")
         return jsonify({"status": "error", "message": f"获取数据失败: {str(e)}"}), 500
