@@ -85,16 +85,52 @@ def init_seed_funds():
     try:
         initialized_count = 0
         updated_count = 0
+        refreshed_count = 0
         
         for seed in SEED_FUNDS:
             existing = collection.find_one({"fund_code": seed["code"]})
             
             if existing:
-                collection.update_one(
-                    {"fund_code": seed["code"]},
-                    {"$set": {"is_seed": True}}
-                )
-                updated_count += 1
+                needs_update = False
+                
+                if 'net_value' not in existing or existing.get('net_value') is None:
+                    needs_update = True
+                    print(f"[种子基金] {seed['code']} 缺少净值数据，需要更新")
+                
+                if 'day_growth' not in existing or existing.get('day_growth') is None:
+                    needs_update = True
+                    print(f"[种子基金] {seed['code']} 缺少日涨幅数据，需要更新")
+                
+                if 'month_growth' not in existing or existing.get('month_growth') is None:
+                    needs_update = True
+                    print(f"[种子基金] {seed['code']} 缺少月收益数据，需要更新")
+                
+                if needs_update:
+                    print(f"[种子基金] 正在更新 {seed['code']} ({seed['name']}) 的完整数据...")
+                    fund_data = get_fund_info(seed["code"])
+                    
+                    if fund_data:
+                        fund_data["is_seed"] = True
+                        collection.update_one(
+                            {"fund_code": seed["code"]},
+                            {"$set": fund_data}
+                        )
+                        refreshed_count += 1
+                        print(f"[种子基金] ✅ {seed['code']} 数据更新成功")
+                    else:
+                        collection.update_one(
+                            {"fund_code": seed["code"]},
+                            {"$set": {"is_seed": True}}
+                        )
+                        print(f"[种子基金] ⚠️ {seed['code']} 数据更新失败，仅更新标记")
+                    
+                    time.sleep(0.5)
+                else:
+                    collection.update_one(
+                        {"fund_code": seed["code"]},
+                        {"$set": {"is_seed": True}}
+                    )
+                    updated_count += 1
             else:
                 print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的完整数据...")
                 fund_data = get_fund_info(seed["code"])
@@ -116,7 +152,7 @@ def init_seed_funds():
                 
                 time.sleep(0.5)
         
-        print(f"[种子基金] 初始化完成: 新增 {initialized_count} 个，更新 {updated_count} 个")
+        print(f"[种子基金] 初始化完成: 新增 {initialized_count} 个，更新 {updated_count} 个，刷新 {refreshed_count} 个")
     except Exception as e:
         print(f"[种子基金] 初始化失败: {str(e)}")
 
@@ -316,6 +352,52 @@ def update_funds():
         "codes": updated,
         "failed": failed,
         "total": len(DEFAULT_FUND_CODES)
+    })
+
+@app.route('/api/update_seeds')
+def update_seed_funds():
+    """
+    更新所有种子基金的完整数据
+    """
+    db_check = check_db_status()
+    if db_check: return db_check
+    
+    updated = []
+    failed = []
+    
+    print("=" * 50)
+    print(f"开始更新种子基金数据，共 {len(SEED_FUNDS)} 个")
+    print("=" * 50)
+    
+    for seed in SEED_FUNDS:
+        fund_code = seed["code"]
+        print(f"[{fund_code}] 正在获取完整数据...")
+        
+        data = get_fund_info(fund_code)
+        if data:
+            try:
+                data["is_seed"] = True
+                collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
+                updated.append(fund_code)
+                print(f"[{fund_code}] ✅ 数据库更新成功")
+            except Exception as e:
+                failed.append({"code": fund_code, "reason": f"数据库更新失败: {str(e)}"})
+                print(f"[{fund_code}] ❌ 数据库更新失败: {str(e)}")
+        else:
+            failed.append({"code": fund_code, "reason": "获取基金信息失败"})
+        
+        time.sleep(0.5)
+    
+    print("=" * 50)
+    print(f"更新完成: 成功 {len(updated)} 个，失败 {len(failed)} 个")
+    print("=" * 50)
+    
+    return jsonify({
+        "status": "success",
+        "count": len(updated),
+        "codes": updated,
+        "failed": failed,
+        "total": len(SEED_FUNDS)
     })
 
 @app.route('/api/search_proxy')
