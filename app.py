@@ -17,6 +17,53 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 # 1. 环境变量读取
 MONGO_URI = os.environ.get("MONGO_URI")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_SMTP = os.environ.get("EMAIL_SMTP")
+EMAIL_PORT = os.environ.get("EMAIL_PORT")
+
+def send_verification_email(email, code):
+    """
+    使用 SMTP 发送验证码邮件
+    """
+    if not EMAIL_SENDER or not EMAIL_PASSWORD or not EMAIL_SMTP or not EMAIL_PORT:
+        print(f"[邮件] ⚠️ 邮件配置不完整，验证码: {code}")
+        return False
+    
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = "您的验证码 - Fund Tracking"
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = email
+        
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #333;">验证码</h2>
+            <p style="font-size: 16px; color: #666;">您的验证码是：</p>
+            <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                {code}
+            </div>
+            <p style="font-size: 14px; color: #999;">验证码有效期为10分钟，请尽快使用。</p>
+            <p style="font-size: 14px; color: #999;">如果您没有请求此验证码，请忽略此邮件。</p>
+        </div>
+        """
+        
+        html_part = MIMEText(html_content, 'html', 'utf-8')
+        msg.attach(html_part)
+        
+        with smtplib.SMTP_SSL(EMAIL_SMTP, int(EMAIL_PORT)) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, email, msg.as_string())
+        
+        print(f"[邮件] ✅ 验证码已发送至 {email}")
+        return True
+    except Exception as e:
+        print(f"[邮件] ❌ 发送异常: {str(e)}")
+        return False
 
 # 2. 全局数据库对象占位
 db = None
@@ -751,9 +798,15 @@ def register():
         }
         
         users_collection.insert_one(pending_user)
-        print(f"[注册] 用户 {email} 注册成功，验证码: {verification_code}")
         
-        return jsonify({'status': 'success', 'message': 'User registered. Verification code: ' + verification_code}), 200
+        email_sent = send_verification_email(email, verification_code)
+        
+        if email_sent:
+            print(f"[注册] ✅ 用户 {email} 注册成功，验证码已发送")
+            return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
+        else:
+            print(f"[注册] ⚠️ 用户 {email} 注册成功，但邮件发送失败，验证码: {verification_code}")
+            return jsonify({'status': 'success', 'message': 'Registration successful. Please contact support for verification code.'}), 200
         
     except Exception as e:
         print(f"[注册] ❌ 注册失败: {str(e)}")
