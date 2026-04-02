@@ -19,28 +19,17 @@ MONGO_URI = os.environ.get("MONGO_URI")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_SMTP = os.environ.get("EMAIL_SMTP")
-EMAIL_PORT = os.environ.get("EMAIL_PORT")
 
 def send_verification_email(email, code):
     """
-    使用 SMTP STARTTLS 模式发送验证码邮件
+    使用 Resend HTTP API 发送验证码邮件
     - 返回 True/False
     """
-    if not EMAIL_PASSWORD or not EMAIL_SMTP or not EMAIL_PORT:
-        print(f"[邮件] ⚠️ 邮件服务配置不完整")
+    if not EMAIL_PASSWORD or not EMAIL_SENDER:
+        print(f"[邮件] ⚠️ 邮件服务配置不完整: EMAIL_SENDER 或 EMAIL_PASSWORD 缺失")
         return False
     
     try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = "您的验证码 - Fund Tracking"
-        msg['From'] = EMAIL_SENDER or "noreply@fundtracking.online"
-        msg['To'] = email
-        
         html_content = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #333;">验证码</h2>
@@ -53,17 +42,28 @@ def send_verification_email(email, code):
         </div>
         """
         
-        html_part = MIMEText(html_content, 'html', 'utf-8')
-        msg.attach(html_part)
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {EMAIL_PASSWORD}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": EMAIL_SENDER,
+                "to": [email],
+                "subject": "您的验证码 - Fund Tracking",
+                "html": html_content
+            },
+            timeout=10
+        )
         
-        server = smtplib.SMTP(EMAIL_SMTP, int(EMAIL_PORT), timeout=15)
-        server.starttls()
-        server.login("resend", EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        print(f"[邮件] ✅ 验证码已发送至 {email}")
-        return True
+        if 200 <= response.status_code < 300:
+            result = response.json()
+            print(f"[邮件] ✅ 验证码已发送至 {email}, Resend ID: {result.get('id')}")
+            return True
+        else:
+            print(f"[邮件] ❌ 发送失败: HTTP {response.status_code} - {response.text}")
+            return False
     except Exception as e:
         print(f"[邮件] ❌ 彻底失败: {str(e)}")
         return False
