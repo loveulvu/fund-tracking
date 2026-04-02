@@ -272,6 +272,34 @@ def check_db_status():
         return jsonify({"status": "error", "message": "数据库未初始化"}), 500
     return None
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return jsonify({'status': 'ok'}), 200
+        
+        token = None
+        
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        try:
+            data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+            current_user_id = data['userId']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        return f(current_user_id, *args, **kwargs)
+    
+    return decorated
+
 @app.route('/api/watchlist', methods=['GET'])
 @token_required
 def get_watchlist(current_user_id):
@@ -554,34 +582,6 @@ def resend_verification():
     except Exception as e:
         print(f"[重发] ❌ 重发失败: {str(e)}")
         return jsonify({'error': 'Resend failed'}), 500
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if request.method == 'OPTIONS':
-            return jsonify({'status': 'ok'}), 200
-        
-        token = None
-        
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith('Bearer '):
-                token = auth_header.split(' ')[1]
-        
-        if not token:
-            return jsonify({'error': 'Token is missing'}), 401
-        
-        try:
-            data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-            current_user_id = data['userId']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token has expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        return f(current_user_id, *args, **kwargs)
-    
-    return decorated
 
 @app.route('/')
 def index():
