@@ -269,19 +269,6 @@ def get_fund_info(fund_code):
                         except Exception as e:
                             print(f"[{fund_code}] 近3年解析失败: {str(e)}")
             
-            if 'week_growth' not in data_item:
-                data_item['week_growth'] = 0
-            if 'month_growth' not in data_item:
-                data_item['month_growth'] = 0
-            if 'three_month_growth' not in data_item:
-                data_item['three_month_growth'] = 0
-            if 'six_month_growth' not in data_item:
-                data_item['six_month_growth'] = 0
-            if 'year_growth' not in data_item:
-                data_item['year_growth'] = 0
-            if 'three_year_growth' not in data_item:
-                data_item['three_year_growth'] = 0
-            
             print(f"[{fund_code}] 从主页获取收益数据成功")
         except Exception as e:
             print(f"[{fund_code}] 主页获取失败: {str(e)}")
