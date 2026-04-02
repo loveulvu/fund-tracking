@@ -39,6 +39,7 @@ else:
     try:
         # 设置 2 秒超时，防止网络卡死导致 Railway 健康检查超时
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
+        # 兼容两种连接串格式：带/不带数据库名称
         db = client['fund_tracking']
         collection = db['fund_data']
         watchlist_collection = db['watchlists']
@@ -72,160 +73,140 @@ def get_fund_info(fund_code):
     print(f"[{fund_code}] 开始获取基金信息...")
     
     try:
-        data_item = {
-            "fund_code": fund_code,
-            "update_time": int(time.time())
+        url = f"http://fund.eastmoney.com/{fund_code}.html"
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        fund_name = soup.find('div', class_='box').find('span').text.strip() if soup.find('div', class_='box') else None
+        if not fund_name:
+            fund_name = soup.find('div', {'id': 'infoName'}).find('span').text.strip() if soup.find('div', {'id': 'infoName'}) else None
+        
+        if not fund_name:
+            print(f"[{fund_code}] ❌ 基金名称获取失败")
+            return None
+        
+        print(f"[{fund_code}] ✅ 基金名称: {fund_name}")
+        
+        data = {
+            'fund_code': fund_code,
+            'fund_name': fund_name,
+            'update_time': int(time.time())
         }
         
-        try:
-            api_url = f"http://fundgz.1234567.com.cn/js/{fund_code}.js"
-            response = requests.get(api_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            
-            jsonp_str = response.text
-            if jsonp_str and 'jsonpgz' in jsonp_str:
-                json_str = jsonp_str.replace('jsonpgz(', '').replace(');', '')
-                import json
-                fund_data = json.loads(json_str)
-                
-                data_item['fund_name'] = fund_data.get('name', '未知')
-                data_item['net_value'] = float(fund_data.get('dwjz', 0))
-                data_item['net_value_date'] = fund_data.get('jzrq', '')
-                data_item['day_growth'] = float(fund_data.get('gszzl', 0))
-                
-                print(f"[{fund_code}] 从 API 获取基本信息成功: {data_item['fund_name']}")
-        except Exception as e:
-            print(f"[{fund_code}] API 获取失败: {str(e)}")
+        net_worth = soup.find('span', class_='ui-font-large') or soup.find('span', {'id': 'gz_gsz'})
+        if net_worth:
+            data['net_worth'] = float(net_worth.text.strip())
+            print(f"[{fund_code}] ✅ 净值: {data['net_worth']}")
         
-        try:
-            pingzhong_url = f"http://fund.eastmoney.com/pingzhongdata/{fund_code}.js"
-            response = requests.get(pingzhong_url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            
-            import re
-            text = response.text
-            
-            syl_1y_match = re.search(r'var\s+syl_1y\s*=\s*"([^"]*)";', text)
-            syl_3y_match = re.search(r'var\s+syl_3y\s*=\s*"([^"]*)";', text)
-            syl_6y_match = re.search(r'var\s+syl_6y\s*=\s*"([^"]*)";', text)
-            syl_1n_match = re.search(r'var\s+syl_1n\s*=\s*"([^"]*)";', text)
-            
-            def parse_growth_value(match):
-                if match:
-                    value = match.group(1).strip()
-                    if value and value != '--' and value != '':
-                        try:
-                            return float(value)
-                        except:
-                            return 0.0
-                return 0.0
-            
-            data_item['month_growth'] = parse_growth_value(syl_1y_match)
-            data_item['three_month_growth'] = parse_growth_value(syl_3y_match)
-            data_item['six_month_growth'] = parse_growth_value(syl_6y_match)
-            data_item['year_growth'] = parse_growth_value(syl_1n_match)
-            
-            print(f"[{fund_code}] 从品种数据接口获取收益数据成功")
-        except Exception as e:
-            print(f"[{fund_code}] 品种数据接口获取失败: {str(e)}")
+        day_growth = soup.find('span', {'id': 'gz_gsz'}) or soup.find('span', class_='ui-font-large')
+        if day_growth and day_growth != net_worth:
+            growth_text = day_growth.text.strip()
+            if growth_text:
+                data['day_growth'] = float(growth_text.replace('%', ''))
+                print(f"[{fund_code}] ✅ 日涨幅: {data['day_growth']}%")
         
-        try:
-            url = f"https://fund.eastmoney.com/{fund_code}.html"
-            response = requests.get(url, headers=headers, timeout=3)
-            response.encoding = 'utf-8'
-            soup = BeautifulSoup(response.text, 'html.parser')
-            html_text = response.text
-            
-            if 'fund_name' not in data_item:
-                fund_name = soup.find('span', class_='funCur-FundName')
-                data_item['fund_name'] = fund_name.text.strip() if fund_name else "未知"
-            
-            if 'net_value' not in data_item:
-                net_value_elem = soup.find('dl', class_='dataItem02')
-                if net_value_elem:
-                    net_value = net_value_elem.find('span', class_='ui-font-large')
-                    if net_value:
-                        data_item['net_value'] = float(net_value.text.strip())
+        today_purchase = soup.find('span', {'id': 'gz_gsz'})
+        if today_purchase:
+            data['today_purchase'] = today_purchase.text.strip()
+        
+        fund_type = soup.find('div', class_='infoOfFund')
+        if fund_type:
+            type_rows = fund_type.find_all('tr')
+            for row in type_rows:
+                cells = row.find_all('td')
+                if len(cells) >= 2:
+                    key = cells[0].text.strip().replace('：', '')
+                    value = cells[1].text.strip()
+                    if '基金类型' in key:
+                        data['fund_type'] = value
+                    elif '基金规模' in key:
+                        data['fund_size'] = value
+        
+        data['week_growth'] = 0.0
+        data['month_growth'] = 0.0
+        data['three_month_growth'] = 0.0
+        data['six_month_growth'] = 0.0
+        data['year_growth'] = 0.0
+        data['two_year_growth'] = 0.0
+        data['three_year_growth'] = 0.0
+        data['five_year_growth'] = 0.0
+        data['this_year_growth'] = 0.0
+        data['total_growth'] = 0.0
+        
+        history_table = soup.find('table', class_='ui-table ui-table-border ui-table-hover ui-table-radius')
+        if history_table:
+            rows = history_table.find_all('tr')
+            for row in rows[1:]:
+                cells = row.find_all('td')
+                if len(cells) >= 2:
+                    period = cells[0].text.strip()
+                    growth = cells[1].text.strip().replace('%', '') if cells[1].text.strip() else '0.0'
+                    try:
+                        growth_value = float(growth)
+                    except ValueError:
+                        growth_value = 0.0
                     
-                    net_value_date = net_value_elem.find('dt')
-                    if net_value_date:
-                        data_item['net_value_date'] = net_value_date.text.strip()
-            
-            if 'day_growth' not in data_item:
-                day_growth_elem = soup.find('dl', class_='dataItem03')
-                if day_growth_elem:
-                    day_growth = day_growth_elem.find('span', class_='ui-font-large')
-                    if day_growth:
-                        growth_text = day_growth.text.strip().replace('%', '')
-                        try:
-                            data_item['day_growth'] = float(growth_text)
-                        except:
-                            pass
-            
-            print(f"[{fund_code}] 从主页获取补充数据成功")
-        except Exception as e:
-            print(f"[{fund_code}] 主页获取失败: {str(e)}")
+                    if '近1周' in period:
+                        data['week_growth'] = growth_value
+                    elif '近1月' in period:
+                        data['month_growth'] = growth_value
+                    elif '近3月' in period:
+                        data['three_month_growth'] = growth_value
+                    elif '近6月' in period:
+                        data['six_month_growth'] = growth_value
+                    elif '近1年' in period:
+                        data['year_growth'] = growth_value
+                    elif '近2年' in period:
+                        data['two_year_growth'] = growth_value
+                    elif '近3年' in period:
+                        data['three_year_growth'] = growth_value
+                    elif '近5年' in period:
+                        data['five_year_growth'] = growth_value
+                    elif '今年来' in period:
+                        data['this_year_growth'] = growth_value
+                    elif '成立以来' in period:
+                        data['total_growth'] = growth_value
         
-        print(f"[{fund_code}] 获取完成: {data_item.get('fund_name', '未知')}")
-        return data_item
+        print(f"[{fund_code}] ✅ 历史收益数据已提取")
         
-    except requests.exceptions.Timeout:
-        print(f"[{fund_code}] ❌ 请求超时")
-        return None
+        return data
+        
     except requests.exceptions.RequestException as e:
-        print(f"[{fund_code}] ❌ 请求异常: {str(e)}")
+        print(f"[{fund_code}] ❌ 请求失败: {str(e)}")
         return None
     except Exception as e:
-        print(f"[{fund_code}] ❌ 未知错误: {str(e)}")
+        print(f"[{fund_code}] ❌ 解析失败: {str(e)}")
         return None
 
-# API 路由安全检查装饰逻辑
-def check_db_status():
-    if db_error_message:
-        return jsonify({"status": "error", "message": db_error_message}), 500
-    if collection is None:
-        return jsonify({"status": "error", "message": "数据库未初始化"}), 500
-    return None
+def update_fund_data():
+    print("[更新] 开始更新基金数据...")
+    
+    for fund_code in DEFAULT_FUND_CODES:
+        try:
+            fund_data = get_fund_info(fund_code)
+            if fund_data:
+                collection.update_one(
+                    {'fund_code': fund_code},
+                    {'$set': fund_data},
+                    upsert=True
+                )
+                print(f"[{fund_code}] ✅ 数据已更新")
+            else:
+                print(f"[{fund_code}] ❌ 数据获取失败")
+        except Exception as e:
+            print(f"[{fund_code}] ❌ 更新失败: {str(e)}")
+    
+    print("[更新] 基金数据更新完成。")
 
 @app.route('/api/update')
 def update_funds():
     db_check = check_db_status()
     if db_check: return db_check
     
-    updated = []
-    failed = []
-    
-    print("=" * 50)
-    print(f"开始更新基金数据，共 {len(DEFAULT_FUND_CODES)} 个基金")
-    print("=" * 50)
-    
-    for c in DEFAULT_FUND_CODES:
-        data = get_fund_info(c)
-        if data:
-            try:
-                collection.update_one({"fund_code": c}, {"$set": data}, upsert=True)
-                updated.append(c)
-                print(f"[{c}] ✅ 数据库更新成功")
-            except Exception as e:
-                failed.append({"code": c, "reason": f"数据库更新失败: {str(e)}"})
-                print(f"[{c}] ❌ 数据库更新失败: {str(e)}")
-        else:
-            failed.append({"code": c, "reason": "获取基金信息失败"})
-        
-        # 添加短暂延迟，避免请求过快
-        time.sleep(0.5)
-    
-    print("=" * 50)
-    print(f"更新完成: 成功 {len(updated)} 个，失败 {len(failed)} 个")
-    print("=" * 50)
-    
-    return jsonify({
-        "status": "success",
-        "count": len(updated),
-        "codes": updated,
-        "failed": failed,
-        "total": len(DEFAULT_FUND_CODES)
-    })
+    threading.Thread(target=update_fund_data).start()
+    return jsonify({"message": "更新任务已启动"}), 202
 
 @app.route('/api/funds')
 def get_funds():
@@ -233,93 +214,170 @@ def get_funds():
     if db_check: return db_check
     
     try:
-        data = list(collection.find({}, {"_id": 0}))
-        return jsonify(data)
+        funds = list(collection.find({}, {'_id': 0}))
+        return jsonify(funds)
     except Exception as e:
-        print(f"获取基金列表失败: {str(e)}")
-        return jsonify({"status": "error", "message": f"获取数据失败: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/fund/<fund_code>')
 def get_fund(fund_code):
-    """获取单个基金数据"""
     db_check = check_db_status()
     if db_check: return db_check
     
     try:
-        # 先从数据库查找
-        fund_data = collection.find_one({"fund_code": fund_code}, {"_id": 0})
-        
-        if fund_data:
-            print(f"[{fund_code}] 从数据库获取成功")
-            return jsonify(fund_data)
-        
-        # 数据库中没有，从天天基金网爬取
-        print(f"[{fund_code}] 数据库中不存在，从天天基金网获取...")
-        data = get_fund_info(fund_code)
-        
-        if data:
-            # 保存到数据库
-            collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
-            print(f"[{fund_code}] ✅ 从天天基金网获取成功并保存到数据库")
-            return jsonify(data)
+        fund = collection.find_one({'fund_code': fund_code}, {'_id': 0})
+        if fund:
+            return jsonify(fund)
         else:
             return jsonify({"error": "Fund not found"}), 404
-            
     except Exception as e:
-        print(f"获取基金数据失败: {str(e)}")
-        return jsonify({"error": f"Failed to fetch fund data: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/')
-def index():
-    if db_error_message:
-        return f"API is Running, but Database Error: {db_error_message}", 200
-    return "Fund Tracking API is Running successfully with DB connected.", 200
-
-@app.route('/health')
-def health():
-    return jsonify({
-        "status": "ok",
-        "db_connected": collection is not None,
-        "db_error": db_error_message
-    })
-
-# ============ JWT 验证装饰器 ============
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if request.method == 'OPTIONS':
-            return jsonify({'status': 'ok'}), 200
-        
-        token = None
-        
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith('Bearer '):
-                token = auth_header.split(' ')[1]
-        
-        if not token:
-            return jsonify({'error': 'Token is missing'}), 401
-        
-        try:
-            data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-            current_user_id = data['userId']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'error': 'Token has expired'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'error': 'Invalid token'}), 401
-        
-        return f(current_user_id, *args, **kwargs)
+@app.route('/api/funds/search')
+def search_funds():
+    db_check = check_db_status()
+    if db_check: return db_check
     
-    return decorated
+    try:
+        query = request.args.get('query', '').strip()
+        
+        if not query:
+            return jsonify({"error": "Query parameter is required"}), 400
+        
+        fund = collection.find_one({'fund_code': query}, {'_id': 0})
+        if fund:
+            return jsonify([fund])
+        
+        fund = collection.find_one({'fund_name': {'$regex': query, '$options': 'i'}}, {'_id': 0})
+        if fund:
+            return jsonify([fund])
+        
+        new_fund = get_fund_info(query)
+        if new_fund:
+            collection.update_one(
+                {'fund_code': query},
+                {'$set': new_fund},
+                upsert=True
+            )
+            return jsonify([new_fund])
+        
+        return jsonify([]), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-# ============ 邮件发送功能 ============
+def check_db_status():
+    if db_error_message:
+        return jsonify({"status": "error", "message": db_error_message}), 500
+    if collection is None:
+        return jsonify({"status": "error", "message": "数据库未初始化"}), 500
+    return None
+
+@app.route('/api/watchlist', methods=['GET'])
+@token_required
+def get_watchlist(current_user_id):
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
+        return jsonify(watchlist)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/watchlist', methods=['POST'])
+@token_required
+def add_to_watchlist(current_user_id):
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        data = request.get_json()
+        fund_code = data.get('fundCode')
+        fund_name = data.get('fundName')
+        threshold = data.get('alertThreshold', 0)
+        
+        existing = watchlist_collection.find_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        if existing:
+            return jsonify({'error': 'Fund already in watchlist'}), 409
+        
+        watchlist_collection.insert_one({
+            'userId': current_user_id,
+            'fundCode': fund_code,
+            'fundName': fund_name,
+            'alertThreshold': threshold,
+            'addedAt': datetime.now()
+        })
+        
+        return jsonify({'message': 'Successfully added to watchlist'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/watchlist/<fund_code>', methods=['DELETE'])
+@token_required
+def remove_from_watchlist(current_user_id, fund_code):
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        print(f"[删除关注] 用户: {current_user_id}, 基金代码: {fund_code}")
+        
+        existing = watchlist_collection.find_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        if not existing:
+            print(f"[删除关注] ❌ 未找到记录: userId={current_user_id}, fundCode={fund_code}")
+            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        
+        result = watchlist_collection.delete_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        })
+        
+        print(f"[删除关注] ✅ 删除结果: deleted_count={result.deleted_count}")
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Failed to delete from watchlist'}), 500
+        
+        return jsonify({'message': 'Successfully removed from watchlist'})
+    except Exception as e:
+        print(f"[删除关注] ❌ 删除失败: {str(e)}")
+        return jsonify({'error': 'Failed to remove from watchlist'}), 500
+
+@app.route('/api/watchlist/<fund_code>', methods=['PUT'])
+@token_required
+def update_watchlist_threshold(current_user_id, fund_code):
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+    
+    try:
+        data = request.get_json()
+        threshold = data.get('alertThreshold')
+        
+        result = watchlist_collection.update_one({
+            'userId': current_user_id,
+            'fundCode': fund_code
+        }, {
+            '$set': {'alertThreshold': threshold}
+        })
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        
+        return jsonify({'message': 'Successfully updated threshold'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def send_verification_email(to_email, code):
-    """
-    使用 Resend API 发送验证码邮件
-    发件人必须为 FundTracking <no-reply@fundtracking.online>
-    """
     print(f"[邮件] 开始发送验证码到 {to_email}")
     
     if not RESEND_API_KEY:
@@ -358,21 +416,8 @@ def send_verification_email(to_email, code):
         print(f"[邮件] ❌ 发送失败: {str(e)}")
         return False, f"邮件发送失败，验证码: {code}"
 
-# ============ 用户认证 API ============
-
-@app.route('/api/auth/register', methods=['POST', 'OPTIONS'])
+@app.route('/api/auth/register', methods=['POST'])
 def register():
-    """
-    用户注册接口
-    业务逻辑：用户在通过邮箱验证之前，绝对不能成为系统中的有效用户
-    状态存储：注册时，将用户的注册信息和生成的验证 Token 存入 users 集合，is_verified 设为 false
-    """
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-    
-    if users_collection is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     try:
         data = request.get_json()
         email = data.get('email')
@@ -381,349 +426,173 @@ def register():
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
-        # 检查用户是否已存在
         existing_user = users_collection.find_one({'email': email})
         if existing_user:
-            # 如果用户已存在且已验证，返回错误
-            if existing_user.get('is_verified'):
-                return jsonify({'error': 'User already exists and verified'}), 400
-            # 如果用户已存在但未验证，重新发送验证码
-            else:
-                verification_code = str(random.randint(100000, 999999))
-                users_collection.update_one(
-                    {'email': email},
-                    {'$set': {
-                        'password': password,  # 更新密码
-                        'verification_code': verification_code,
-                        'verification_code_expires': datetime.utcnow() + timedelta(minutes=10)
-                    }}
-                )
-                # 异步发送邮件
-                threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
-                return jsonify({'emailSent': True, 'message': '验证邮件正在发送中，请检查邮箱（包括垃圾邮件）'}), 200
+            return jsonify({'error': 'User already exists'}), 409
         
-        # 新用户注册
         verification_code = str(random.randint(100000, 999999))
+        expires_at = datetime.now() + timedelta(minutes=10)
         
-        user = {
+        pending_user = {
             'email': email,
-            'password': password,  # 注意：实际生产环境应哈希密码
-            'is_verified': False,  # 未验证状态
+            'password': password,
             'verification_code': verification_code,
-            'verification_code_expires': datetime.utcnow() + timedelta(minutes=10),
-            'created_at': datetime.utcnow()
+            'verification_code_expires': expires_at,
+            'createdAt': datetime.now()
         }
         
-        # 存入数据库，但 is_verified 为 false，不代表注册成功
-        users_collection.insert_one(user)
+        users_collection.insert_one(pending_user)
         
-        # 异步发送邮件
         threading.Thread(target=send_verification_email, args=(email, verification_code)).start()
         
-        return jsonify({'emailSent': True, 'message': '验证邮件正在发送中，请检查邮箱（包括垃圾邮件）'}), 200
+        return jsonify({'status': 'success', 'message': 'Verification code sent'}), 200
         
     except Exception as e:
-        print(f"注册失败: {str(e)}")
+        print(f"[注册] ❌ 注册失败: {str(e)}")
         return jsonify({'error': 'Registration failed'}), 500
 
-@app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
-def login():
-    """
-    用户登录接口
-    业务逻辑：只有验证通过的用户才能登录
-    """
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-    
-    if users_collection is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
-    try:
-        data = request.get_json()
-        email = data.get('email')
-        password = data.get('password')
-        
-        if not email or not password:
-            return jsonify({'error': 'Email and password are required'}), 400
-        
-        user = users_collection.find_one({'email': email})
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        # 检查是否已验证
-        if not user.get('is_verified'):
-            return jsonify({'error': 'Please verify your email first', 'needVerification': True}), 401
-        
-        # 验证密码
-        if user['password'] != password:
-            return jsonify({'error': 'Invalid password'}), 401
-        
-        # 生成 JWT Token
-        user_id = str(user['_id'])
-        
-        token = jwt.encode({
-            'userId': user_id,
-            'email': email,
-            'exp': datetime.utcnow() + timedelta(days=7)
-        }, JWT_SECRET, algorithm='HS256')
-        
-        return jsonify({
-            'message': 'Login successful',
-            'token': token,
-            'email': email
-        }), 200
-        
-    except Exception as e:
-        print(f"登录失败: {str(e)}")
-        return jsonify({'error': 'Login failed'}), 500
-
-@app.route('/api/auth/verify', methods=['POST', 'OPTIONS'])
+@app.route('/api/auth/verify', methods=['POST'])
 def verify_email():
-    """
-    邮箱验证接口
-    业务逻辑：验证通过后，将 is_verified 设为 true，用户才能成为有效用户
-    """
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-    
-    if users_collection is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     try:
         data = request.get_json()
         email = data.get('email')
         code = data.get('code')
         password = data.get('password')
         
-        if not email or not code:
-            return jsonify({'error': 'Email and code are required'}), 400
+        if not email or not code or not password:
+            return jsonify({'error': 'Email, code, and password are required'}), 400
         
-        user = users_collection.find_one({'email': email})
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
+        pending_user = users_collection.find_one({
+            'email': email,
+            'verification_code': code
+        })
         
-        # 如果已经验证过
-        if user.get('is_verified'):
-            return jsonify({'message': 'Email already verified'}), 200
-        
-        # 获取存储的验证码
-        stored_code = user.get('verification_code')
-        expires = user.get('verification_code_expires')
-        
-        if not stored_code or not expires:
-            return jsonify({'error': 'Verification code not found, please register again'}), 400
-        
-        # 检查验证码是否过期
-        if datetime.utcnow() > expires:
-            return jsonify({'error': 'Verification code expired'}), 400
-        
-        # 验证验证码
-        if code != stored_code:
+        if not pending_user:
             return jsonify({'error': 'Invalid verification code'}), 400
         
-        # 验证通过，将用户转为正式有效用户
-        users_collection.update_one(
-            {'email': email},
-            {'$set': {
-                'is_verified': True,
-                'verification_code': None,
-                'verification_code_expires': None
-            }}
-        )
+        if pending_user['verification_code_expires'] < datetime.now():
+            return jsonify({'error': 'Verification code expired'}), 400
         
-        # 生成 JWT Token，自动登录
-        user_id = str(user['_id'])
-        
-        token = jwt.encode({
-            'userId': user_id,
+        new_user = {
             'email': email,
-            'exp': datetime.utcnow() + timedelta(days=7)
-        }, JWT_SECRET, algorithm='HS256')
+            'password': password,
+            'is_verified': True,
+            'createdAt': datetime.now()
+        }
+        
+        users_collection.insert_one(new_user)
+        users_collection.delete_one({'email': email})
+        
+        return jsonify({'status': 'success', 'message': 'Email verified successfully'}), 200
+        
+    except Exception as e:
+        print(f"[验证] ❌ 验证失败: {str(e)}")
+        return jsonify({'error': 'Verification failed'}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        user = users_collection.find_one({'email': email})
+        
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        payload = {
+            'userId': str(user['_id']),
+            'email': email,
+            'exp': datetime.now(datetime.UTC) + timedelta(hours=24)
+        }
+        
+        token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
         
         return jsonify({
-            'message': 'Email verified successfully',
+            'status': 'success',
             'token': token,
             'email': email
         }), 200
         
     except Exception as e:
-        print(f"验证失败: {str(e)}")
-        return jsonify({'error': 'Verification failed'}), 500
+        print(f"[登录] ❌ 登录失败: {str(e)}")
+        return jsonify({'error': 'Login failed'}), 500
 
-@app.route('/api/auth/check', methods=['GET', 'OPTIONS'])
-@token_required
-def verify_token(current_user_id):
-    """
-    验证 Token 有效性接口
-    """
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
-    
-    if users_collection is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
+@app.route('/api/auth/resend', methods=['POST'])
+def resend_verification():
     try:
-        from bson.objectid import ObjectId
-        user = users_collection.find_one({'_id': ObjectId(current_user_id)})
+        data = request.get_json()
+        email = data.get('email')
         
-        if not user:
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        pending_user = users_collection.find_one({'email': email})
+        
+        if not pending_user:
             return jsonify({'error': 'User not found'}), 404
         
-        return jsonify({
-            'status': 'success',
-            'user': {
-                'id': current_user_id,
-                'email': user['email'],
-                'is_verified': user.get('is_verified', False)
-            }
-        }), 200
+        new_code = str(random.randint(100000, 999999))
+        new_expires_at = datetime.now() + timedelta(minutes=10)
         
-    except Exception as e:
-        print(f"验证失败: {str(e)}")
-        return jsonify({'error': 'Verification failed'}), 500
-
-# ============ 关注列表 API ============
-
-print("System: Loading Route /api/watchlist...")
-
-@app.route('/api/watchlist', methods=['GET'])
-@token_required
-def get_watchlist(current_user_id):
-    """获取当前用户的关注列表"""
-    print(f"[DEBUG] Received request: {request.method} {request.path}")
-    
-    db_check = check_db_status()
-    if db_check:
-        return db_check
-    
-    try:
-        watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
-        print(f"[DEBUG] Returning {len(watchlist)} items for user {current_user_id}")
-        return jsonify(watchlist)
-    except Exception as e:
-        print(f"获取关注列表失败: {str(e)}")
-        return jsonify({'error': 'Failed to fetch watchlist'}), 500
-
-@app.route('/api/watchlist', methods=['POST'])
-@token_required
-def add_to_watchlist(current_user_id):
-    """添加基金到关注列表"""
-    db_check = check_db_status()
-    if db_check:
-        return db_check
-    
-    try:
-        data = request.get_json()
-        fund_code = data.get('fundCode')
-        fund_name = data.get('fundName')
-        threshold = data.get('alertThreshold', 5)
-        
-        if not fund_code or not fund_name:
-            return jsonify({'error': 'fundCode and fundName are required'}), 400
-        
-        # 检查是否已存在
-        existing = watchlist_collection.find_one({
-            'userId': current_user_id,
-            'fundCode': fund_code
-        })
-        
-        if existing:
-            return jsonify({'error': 'Fund already in watchlist'}), 400
-        
-        # 添加到关注列表
-        watchlist_item = {
-            'userId': current_user_id,
-            'fundCode': fund_code,
-            'fundName': fund_name,
-            'alertThreshold': threshold,
-            'addedAt': datetime.utcnow()
-        }
-        
-        watchlist_collection.insert_one(watchlist_item)
-        
-        # 返回时移除 _id
-        watchlist_item.pop('_id', None)
-        return jsonify(watchlist_item), 201
-        
-    except Exception as e:
-        print(f"添加关注失败: {str(e)}")
-        return jsonify({'error': 'Failed to add to watchlist'}), 500
-
-@app.route('/api/watchlist/<fund_code>', methods=['DELETE'])
-@token_required
-def remove_from_watchlist(current_user_id, fund_code):
-    """从关注列表中删除基金"""
-    db_check = check_db_status()
-    if db_check:
-        return db_check
-    
-    try:
-        print(f"[删除关注] 用户: {current_user_id}, 基金代码: {fund_code}")
-        
-        # 先检查是否存在
-        existing = watchlist_collection.find_one({
-            'userId': current_user_id,
-            'fundCode': fund_code
-        })
-        
-        if not existing:
-            print(f"[删除关注] ❌ 未找到记录: userId={current_user_id}, fundCode={fund_code}")
-            return jsonify({'error': 'Fund not found in watchlist'}), 404
-        
-        # 执行物理删除
-        result = watchlist_collection.delete_one({
-            'userId': current_user_id,
-            'fundCode': fund_code
-        })
-        
-        print(f"[删除关注] ✅ 删除结果: deleted_count={result.deleted_count}")
-        
-        if result.deleted_count == 0:
-            return jsonify({'error': 'Failed to delete from watchlist'}), 500
-        
-        return jsonify({'message': 'Successfully removed from watchlist'})
-        
-    except Exception as e:
-        print(f"[删除关注] ❌ 删除失败: {str(e)}")
-        return jsonify({'error': 'Failed to remove from watchlist'}), 500
-
-@app.route('/api/watchlist/<fund_code>', methods=['PUT'])
-@token_required
-def update_watchlist_threshold(current_user_id, fund_code):
-    """更新关注基金的预警阈值"""
-    db_check = check_db_status()
-    if db_check:
-        return db_check
-    
-    try:
-        data = request.get_json()
-        new_threshold = data.get('alertThreshold')
-        
-        if new_threshold is None:
-            return jsonify({'error': 'alertThreshold is required'}), 400
-        
-        result = watchlist_collection.update_one(
-            {'userId': current_user_id, 'fundCode': fund_code},
-            {'$set': {'alertThreshold': new_threshold}}
+        users_collection.update_one(
+            {'email': email},
+            {'$set': {
+                'verification_code': new_code,
+                'verification_code_expires': new_expires_at
+            }}
         )
         
-        if result.matched_count == 0:
-            return jsonify({'error': 'Fund not found in watchlist'}), 404
+        threading.Thread(target=send_verification_email, args=(email, new_code)).start()
         
-        # 返回更新后的数据
-        updated_item = watchlist_collection.find_one(
-            {'userId': current_user_id, 'fundCode': fund_code},
-            {'_id': 0}
-        )
-        
-        return jsonify(updated_item)
+        return jsonify({'status': 'success', 'message': 'New verification code sent'}), 200
         
     except Exception as e:
-        print(f"更新阈值失败: {str(e)}")
-        return jsonify({'error': 'Failed to update threshold'}), 500
+        print(f"[重发] ❌ 重发失败: {str(e)}")
+        return jsonify({'error': 'Resend failed'}), 500
 
-if __name__ == "__main__":
-    # Railway 必须动态读取 PORT 变量
-    port = int(os.environ.get("PORT", 8080))
-    print(f"Starting Flask server on port {port}...")
-    app.run(host='0.0.0.0', port=port)
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return jsonify({'status': 'ok'}), 200
+        
+        token = None
+        
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        try:
+            data = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+            current_user_id = data['userId']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        return f(current_user_id, *args, **kwargs)
+    
+    return decorated
+
+@app.route('/')
+def index():
+    if db_error_message:
+        return f"API is Running, but Database Error: {db_error_message}", 200
+    return "Fund Tracking API is Running successfully with DB connected.", 200
+
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "ok",
+        "db_connected": collection is not None,
+        "db_error": db_error_message
+    })
