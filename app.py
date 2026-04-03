@@ -12,7 +12,7 @@ import jwt
 from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/api/*": {"origins": ["https://fundtracking.online", "https://www.fundtracking.online", "http://localhost:3000"]}}, supports_credentials=True)
 
 # 1. 环境变量读取
 MONGO_URI = os.environ.get("MONGO_URI")
