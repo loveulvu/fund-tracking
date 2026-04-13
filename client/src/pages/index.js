@@ -5,10 +5,18 @@ import styles from '../../styles/Home.module.css';
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
 
+function formatLastUpdated(ts) {
+  if (!ts) return 'Unknown';
+  const value = Number(ts);
+  if (!Number.isFinite(value) || value <= 0) return 'Unknown';
+  return new Date(value * 1000).toLocaleString();
+}
+
 export default function Home() {
   const [funds, setFunds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [lastUpdatedText, setLastUpdatedText] = useState('Unknown');
 
   // 导航项
   const navItems = [
@@ -40,6 +48,15 @@ export default function Home() {
         if (response.ok) {
           const data = await response.json();
           setFunds(data.slice(0, 10)); // 只显示前10个
+          if (Array.isArray(data) && data.length > 0) {
+            const latest = data.reduce((maxTs, item) => {
+              const ts = Number(item?.update_time || 0);
+              return ts > maxTs ? ts : maxTs;
+            }, 0);
+            setLastUpdatedText(formatLastUpdated(latest));
+          } else {
+            setLastUpdatedText('Unknown');
+          }
         } else {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -101,6 +118,7 @@ export default function Home() {
       {/* 内容层，必须在粒子层上面 */}
       <div style={{ position: 'relative', zIndex: 1, paddingTop: '100px' }}>
         <h1 className={styles.title}>Fund Tracking System</h1>
+        <p className={styles.description}>Last updated: {lastUpdatedText}</p>
         <p className={styles.description}>
           实时追踪基金数据，智能分析投资机会
         </p>

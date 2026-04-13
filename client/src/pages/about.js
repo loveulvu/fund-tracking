@@ -5,6 +5,13 @@ import { useState, useEffect, useCallback } from 'react';
 import styles from '../../styles/Home.module.css';
 import api from '../lib/api';
 
+function formatLastUpdated(ts) {
+  if (!ts) return 'Unknown';
+  const value = Number(ts);
+  if (!Number.isFinite(value) || value <= 0) return 'Unknown';
+  return new Date(value * 1000).toLocaleString();
+}
+
 export default function About() {
   const [fundsData, setFundsData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,6 +21,7 @@ export default function About() {
   const [user, setUser] = useState(null);
   const [watchlist, setWatchlist] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState({});
+  const [lastUpdatedText, setLastUpdatedText] = useState('Unknown');
 
   // 导航项 - 只显示Home和Account
   const navItems = [
@@ -129,6 +137,15 @@ export default function About() {
         if (Array.isArray(data)) {
           setFundsData(data);
           setFilteredFunds(data);
+          if (data.length > 0) {
+            const latest = data.reduce((maxTs, item) => {
+              const ts = Number(item?.update_time || 0);
+              return ts > maxTs ? ts : maxTs;
+            }, 0);
+            setLastUpdatedText(formatLastUpdated(latest));
+          } else {
+            setLastUpdatedText('Unknown');
+          }
         } else {
           console.error('Invalid data format:', data);
           setError('Invalid data format received from server');
@@ -273,6 +290,7 @@ export default function About() {
       {/* 内容层，必须在粒子层上面 */}
       <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 20px', paddingTop: '100px' }}>
         <h1 className={styles.title}>Fund Data</h1>
+        <p style={{ color: '#ffffff', opacity: 0.85 }}>Last updated: {lastUpdatedText}</p>
         <p>
           <Link href="/" className={styles.link}>
             Back to Home

@@ -1,0 +1,53 @@
+name: Fund Data Update (Trading Hours)
+
+on:
+  schedule:
+    # Beijing 09:30-11:30 ~= UTC 01:30-03:30 (run every 10 minutes)
+    - cron: "*/10 1-3 * * 1-5"
+    # Beijing 13:00-15:10 ~= UTC 05:00-07:10 (run every 10 minutes)
+    - cron: "*/10 5-7 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  trigger-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate required config
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ]; then
+            echo "BACKEND_BASE_URL secret is required"
+            exit 1
+          fi
+
+      - name: Trigger update endpoint
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
+        run: |
+          set -euo pipefail
+          URL="${BACKEND_BASE_URL%/}/api/update"
+          echo "Triggering: $URL"
+
+          if [ -n "${UPDATE_API_KEY:-}" ]; then
+            curl --fail --show-error --silent \
+              --max-time 120 \
+              --retry 2 --retry-delay 3 \
+              -H "X-Update-Key: ${UPDATE_API_KEY}" \
+              "$URL" | tee update-response.json
+          else
+            curl --fail --show-error --silent \
+              --max-time 120 \
+              --retry 2 --retry-delay 3 \
+              "$URL" | tee update-response.json
+          fi
+
+      - name: Upload update response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-response-${{ github.run_number }}
+          path: update-response.json
+          retention-days: 7

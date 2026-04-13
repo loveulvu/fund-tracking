@@ -1186,10 +1186,18 @@ def index():
 
 @app.route('/health')
 def health():
+    latest_update_time = get_latest_update_time(DEFAULT_FUND_CODES)
+    latest_update_age_seconds = None
+    if latest_update_time:
+        latest_update_age_seconds = max(0, int(time.time()) - int(latest_update_time))
+
     return jsonify({
         "status": "ok",
         "db_connected": collection is not None,
-        "db_error": db_error_message
+        "db_error": db_error_message,
+        "latest_update_time": latest_update_time,
+        "latest_update_age_seconds": latest_update_age_seconds,
+        "auto_refresh_interval_seconds": AUTO_REFRESH_INTERVAL_SECONDS
     })
 
 @app.route('/api/health')
