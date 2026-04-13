@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import PillNav from '../components/PillNav';
 import styles from '../../styles/Home.module.css';
 import api from '../lib/api';
@@ -353,7 +354,7 @@ export default function Profile() {
             </div>
           ) : (
             <p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', padding: '40px' }}>
-              您还没有关注任何基金，<a href="/about" style={{ color: '#4CAF50' }}>去关注</a>
+              您还没有关注任何基金，<Link href="/about" style={{ color: '#4CAF50' }}>去关注</Link>
             </p>
           )}
         </section>

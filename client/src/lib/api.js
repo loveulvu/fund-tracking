@@ -1,9 +1,9 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.fundtracking.online';
 
 export const api = {
-  getFunds: () => fetch(`${API_BASE_URL}/api/funds`),
+  getFunds: (options = {}) => fetch(`${API_BASE_URL}/api/funds`, options),
   getFund: (fundCode) => fetch(`${API_BASE_URL}/api/fund/${fundCode}`),
-  searchFunds: (query) => fetch(`${API_BASE_URL}/api/funds/search?query=${encodeURIComponent(query)}`),
+  searchFunds: (query) => fetch(`${API_BASE_URL}/api/search_proxy?query=${encodeURIComponent(query)}`),
   updateFunds: () => fetch(`${API_BASE_URL}/api/update`),
   
   getWatchlist: (token) => fetch(`${API_BASE_URL}/api/watchlist`, {

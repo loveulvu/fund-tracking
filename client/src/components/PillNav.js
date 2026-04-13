@@ -107,9 +107,10 @@ const PillNav = ({
       }
     }
 
+    const timelines = tlRefs.current;
     return () => {
       window.removeEventListener('resize', initLayout);
-      tlRefs.current.forEach(tl => tl?.kill());
+      timelines.forEach(tl => tl?.kill());
     };
   }, [items, ease, initialLoadAnimation]);
 

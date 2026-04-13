@@ -33,7 +33,7 @@ export default function Home() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
         
-        const response = await api.getFunds();
+        const response = await api.getFunds({ signal: controller.signal });
         
         clearTimeout(timeoutId);
         
@@ -112,7 +112,7 @@ export default function Home() {
             <p className={styles.loading}>Loading funds data...</p>
           ) : funds.length > 0 ? (
             <div className={styles.fundsGrid}>
-              {funds.map((fund, index) => (
+              {funds.map((fund) => (
                 <div key={fund.fund_code} className={styles.fundCard}>
                   <h3 className={styles.fundName}>{fund.fund_name}</h3>
                   <p className={styles.fundCode}>{fund.fund_code}</p>

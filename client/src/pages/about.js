@@ -1,7 +1,7 @@
 import Particles from '../components/Particles';
 import Link from 'next/link';
 import PillNav from '../components/PillNav';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import styles from '../../styles/Home.module.css';
 import api from '../lib/api';
 
@@ -30,7 +30,7 @@ export default function About() {
   }, []);
 
   // 获取关注列表
-  const fetchWatchlist = async () => {
+  const fetchWatchlist = useCallback(async () => {
     if (!user) return;
     
     try {
@@ -44,14 +44,14 @@ export default function About() {
     } catch (err) {
       console.error('Error fetching watchlist:', err);
     }
-  };
+  }, [user]);
 
   // 用户登录后获取关注列表
   useEffect(() => {
     if (user) {
       fetchWatchlist();
     }
-  }, [user]);
+  }, [user, fetchWatchlist]);
 
   // 检查基金是否已关注
   const isWatched = (fundCode) => {

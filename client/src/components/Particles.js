@@ -226,7 +226,8 @@ const Particles = ({
   }, [
     particleCount, particleSpread, speed, particleColors,
     moveParticlesOnHover, particleBaseSize, sizeRandomness,
-    cameraDistance, disableRotation, pixelRatio
+    cameraDistance, disableRotation, pixelRatio,
+    alphaParticles, particleHoverFactor
   ]);
 
   return (

@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from functools import wraps
 import jwt
 from datetime import datetime, timedelta, timezone
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ["https://fundtracking.online", "https://www.fundtracking.online", "http://localhost:3000"]}}, supports_credentials=True)
@@ -19,6 +20,41 @@ MONGO_URI = os.environ.get("MONGO_URI")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+UPDATE_API_KEY = os.environ.get("UPDATE_API_KEY")
+
+if "JWT_SECRET" not in os.environ:
+    print("[security] WARNING: JWT_SECRET is using fallback value. Please set JWT_SECRET in Railway.")
+
+
+def require_update_api_key():
+    """
+    Optional guard for update endpoints.
+    If UPDATE_API_KEY is configured, requests must provide matching key.
+    """
+    if not UPDATE_API_KEY:
+        return None
+    provided = request.headers.get("X-Update-Key") or request.args.get("key")
+    if provided != UPDATE_API_KEY:
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
+
+def hash_password(password):
+    return generate_password_hash(password)
+
+
+def verify_password(stored_password, candidate_password):
+    """
+    Supports both hashed and legacy plaintext passwords for backward compatibility.
+    """
+    if not stored_password or not candidate_password:
+        return False
+    try:
+        if check_password_hash(stored_password, candidate_password):
+            return True
+    except Exception:
+        pass
+    return stored_password == candidate_password
 
 def send_verification_email(email, code):
     """
@@ -26,19 +62,19 @@ def send_verification_email(email, code):
     - 返回 True/False
     """
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        print(f"[邮件] ⚠️ 邮件服务配置不完整: EMAIL_SENDER 或 EMAIL_PASSWORD 缺失")
+        print(f"[邮件] ⚠️ 邮件服务配置不完�? EMAIL_SENDER �?EMAIL_PASSWORD 缺失")
         return False
     
     try:
         html_content = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #333;">验证码</h2>
-            <p style="font-size: 16px; color: #666;">您的验证码是：</p>
+            <h2 style="color: #333;">验证�?/h2>
+            <p style="font-size: 16px; color: #666;">您的验证码是�?/p>
             <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
                 {code}
             </div>
-            <p style="font-size: 14px; color: #999;">验证码有效期为10分钟，请尽快使用。</p>
-            <p style="font-size: 14px; color: #999;">如果您没有请求此验证码，请忽略此邮件。</p>
+            <p style="font-size: 14px; color: #999;">验证码有效期�?0分钟，请尽快使用�?/p>
+            <p style="font-size: 14px; color: #999;">如果您没有请求此验证码，请忽略此邮件�?/p>
         </div>
         """
         
@@ -51,7 +87,7 @@ def send_verification_email(email, code):
             json={
                 "from": EMAIL_SENDER,
                 "to": [email],
-                "subject": "您的验证码 - Fund Tracking",
+                "subject": "您的验证�?- Fund Tracking",
                 "html": html_content
             },
             timeout=10
@@ -59,16 +95,16 @@ def send_verification_email(email, code):
         
         if 200 <= response.status_code < 300:
             result = response.json()
-            print(f"[邮件] ✅ 验证码已发送至 {email}, Resend ID: {result.get('id')}")
+            print(f"[邮件] �?验证码已发送至 {email}, Resend ID: {result.get('id')}")
             return True
         else:
-            print(f"[邮件] ❌ 发送失败: HTTP {response.status_code} - {response.text}")
+            print(f"[邮件] �?发送失�? HTTP {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print(f"[邮件] ❌ 彻底失败: {str(e)}")
+        print(f"[邮件] �?彻底失败: {str(e)}")
         return False
 
-# 2. 全局数据库对象占位
+# 2. 全局数据库对象占�?
 db = None
 collection = None
 watchlist_collection = None
@@ -76,9 +112,9 @@ users_collection = None
 pending_users_collection = None
 db_error_message = None
 
-# 3. 柔性连接逻辑：即使失败也不触发进程崩溃，保证 Railway 能顺利启动
+# 3. 柔性连接逻辑：即使失败也不触发进程崩溃，保证 Railway 能顺利启�?
 if not MONGO_URI:
-    db_error_message = "CRITICAL: MONGO_URI 环境变量缺失，请在 Railway 的 Variables 中添加。"
+    db_error_message = "CRITICAL: MONGO_URI is missing. Please set it in Railway Variables."
     print(db_error_message)
 else:
     try:
@@ -89,32 +125,54 @@ else:
         users_collection = db['users']
         pending_users_collection = db['pending_users']
         client.admin.command('ping')
-        print(f"Flask 正在连接数据库: {db.name}")
-        print("MongoDB 连接成功。")
+        print(f"Flask connecting to database: {db.name}")
+        print("MongoDB connected.")
     except Exception as e:
         db_error_message = f"MongoDB 连接失败: {str(e)}"
         print(db_error_message)
         print("完整错误堆栈:")
         print(traceback.format_exc())
 
+def ensure_indexes():
+    if collection is None:
+        return
+    try:
+        collection.create_index("fund_code", unique=True, name="uniq_fund_code")
+        watchlist_collection.create_index(
+            [("userId", 1), ("fundCode", 1)],
+            unique=True,
+            name="uniq_watchlist_user_fund"
+        )
+        users_collection.create_index("email", unique=True, name="uniq_user_email")
+        pending_users_collection.create_index("email", unique=True, name="uniq_pending_email")
+        pending_users_collection.create_index(
+            "verification_code_expires",
+            expireAfterSeconds=0,
+            name="ttl_pending_verification_expiry"
+        )
+        print("[db] MongoDB indexes ensured.")
+    except Exception as e:
+        print(f"[db] Failed to ensure indexes: {str(e)}")
+
+
 SEED_FUNDS = [
     {"code": "008540", "name": "华夏科技创新A"},
     {"code": "012414", "name": "华夏中证新能源汽车ETF联接A"},
     {"code": "001887", "name": "华夏沪深300指数增强A"},
     {"code": "005303", "name": "华夏中证500指数增强A"},
-    {"code": "588000", "name": "华夏上证科创板50成份ETF"},
+    {"code": "588000", "name": "华夏上证科创�?0成份ETF"},
     {"code": "161128", "name": "易方达中证海外中国互联网50ETF"},
     {"code": "510300", "name": "华泰柏瑞沪深300ETF"},
     {"code": "161725", "name": "招商中证白酒指数(LOF)A"},
     {"code": "001607", "name": "中欧医疗健康混合A"},
-    {"code": "004243", "name": "易方达信息产业混合"}
+    {"code": "004243", "name": "Fund 004243"}
 ]
 
 DEFAULT_FUND_CODES = [fund["code"] for fund in SEED_FUNDS]
 
 def validate_fund_data(fund_data, expected_code, expected_name_hint=None):
     """
-    严格验证基金数据的有效性
+    严格验证基金数据的有效�?
     返回: (is_valid, reason)
     """
     if not fund_data:
@@ -123,10 +181,10 @@ def validate_fund_data(fund_data, expected_code, expected_name_hint=None):
     fund_name = fund_data.get('fund_name', '')
     
     if fund_name == '未知' or not fund_name:
-        return False, "基金名称为空或未知"
+        return False, "Fund name is empty or unknown"
     
     if fund_data.get('fund_code') != expected_code:
-        return False, f"基金代码不匹配: 期望 {expected_code}, 实际 {fund_data.get('fund_code')}"
+        return False, f"基金代码不匹�? 期望 {expected_code}, 实际 {fund_data.get('fund_code')}"
     
     critical_fields = ['net_value', 'day_growth', 'week_growth', 'month_growth']
     missing_fields = [f for f in critical_fields if f not in fund_data]
@@ -145,23 +203,23 @@ def validate_fund_data(fund_data, expected_code, expected_name_hint=None):
 
 def init_seed_funds():
     """
-    初始化种子基金，标记为 is_seed=True，并获取完整数据
+    初始化种子基金，标记�?is_seed=True，并获取完整数据
     包含严格的数据验证，防止错误数据覆盖正确数据
     """
     if collection is None:
-        print("[种子基金] 数据库未初始化，跳过种子基金初始化")
+        print("[seed] Database not initialized, skip seed initialization.")
         return
     
     try:
-        print("[种子基金] 开始清理旧的种子基金数据...")
+        print("[种子基金] 开始清理旧的种子基金数�?..")
         result = collection.delete_many({"is_seed": True})
-        print(f"[种子基金] 已删除 {result.deleted_count} 条旧数据，准备重新初始化")
+        print(f"[种子基金] 已删�?{result.deleted_count} 条旧数据，准备重新初始化")
         
         initialized_count = 0
         failed_count = 0
         
         for seed in SEED_FUNDS:
-            print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的数据...")
+            print(f"[种子基金] 正在获取 {seed['code']} ({seed['name']}) 的数�?..")
             fund_data = get_fund_info(seed["code"])
             
             is_valid, reason = validate_fund_data(fund_data, seed["code"], seed["name"])
@@ -179,21 +237,21 @@ def init_seed_funds():
                             {"fund_code": seed["code"]},
                             fund_data
                         )
-                        print(f"[种子基金] ✅ {seed['code']} 数据替换成功（旧数据无效）")
+                        print(f"[seed] {seed['code']} replaced invalid existing data.")
                     else:
                         collection.update_one(
                             {"fund_code": seed["code"]},
                             {"$set": {"is_seed": True}}
                         )
-                        print(f"[种子基金] ✅ {seed['code']} 已有有效数据，仅更新标记")
+                        print(f"[种子基金] �?{seed['code']} 已有有效数据，仅更新标记")
                 else:
                     collection.insert_one(fund_data)
-                    print(f"[种子基金] ✅ {seed['code']} 数据插入成功: {fund_data.get('fund_name')}")
+                    print(f"[种子基金] �?{seed['code']} 数据插入成功: {fund_data.get('fund_name')}")
                 
                 initialized_count += 1
             else:
                 failed_count += 1
-                print(f"[种子基金] ❌ {seed['code']} 数据验证失败: {reason}")
+                print(f"[种子基金] �?{seed['code']} 数据验证失败: {reason}")
                 
                 existing = collection.find_one({"fund_code": seed["code"]})
                 if existing:
@@ -218,17 +276,17 @@ def init_seed_funds():
             
             time.sleep(0.5)
         
-        print(f"[种子基金] 初始化完成: 成功 {initialized_count} 个，失败 {failed_count} 个")
+        print(f"[seed] Initialization complete: success={initialized_count}, failed={failed_count}")
     except Exception as e:
-        print(f"[种子基金] 初始化失败: {str(e)}")
+        print(f"[种子基金] 初始化失�? {str(e)}")
         print(traceback.format_exc())
 
 def get_fund_info(fund_code):
     """
-    纯 API 驱动的基金信息获取函数
+    �?API 驱动的基金信息获取函�?
     数据源：
-    1. fundgz.1234567.com.cn - 获取实时估值和日涨幅
-    2. fundmobapi.eastmoney.com - 获取基金详情和历史涨幅
+    1. fundgz.1234567.com.cn - 获取实时估值和日涨�?
+    2. fundmobapi.eastmoney.com - 获取基金详情和历史涨�?
     """
     headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     headers_mobile = {
@@ -237,7 +295,7 @@ def get_fund_info(fund_code):
         'Connection': 'Keep-Alive',
     }
     
-    print(f"[{fund_code}] 开始获取基金信息（纯API模式）...")
+    print(f"[{fund_code}] 开始获取基金信息（纯API模式�?..")
     
     data_item = {
         "fund_code": fund_code,
@@ -258,7 +316,7 @@ def get_fund_info(fund_code):
             data_item['net_value_date'] = fund_data.get('jzrq', '')
             data_item['day_growth'] = float(fund_data.get('gszzl', 0)) if fund_data.get('gszzl') else 0.0
             
-            print(f"[{fund_code}] fundgz API: {data_item.get('fund_name')} | 净值: {data_item.get('net_value')} | 日涨幅: {data_item.get('day_growth')}%")
+            print(f"[{fund_code}] fundgz API: {data_item.get('fund_name')} | 净�? {data_item.get('net_value')} | 日涨�? {data_item.get('day_growth')}%")
         else:
             print(f"[{fund_code}] fundgz API 返回异常: HTTP {response.status_code}")
     except Exception as e:
@@ -304,9 +362,14 @@ def get_fund_info(fund_code):
                 if syl_1n is not None:
                     data_item['year_growth'] = float(syl_1n)
                 
-                print(f"[{fund_code}] FundMNBaseInfo API: 周{data_item.get('week_growth', 'N/A')}% | 月{data_item.get('month_growth', 'N/A')}% | 年{data_item.get('year_growth', 'N/A')}%")
+                print(
+                    f"[{fund_code}] FundMNBaseInfo API: "
+                    f"week {data_item.get('week_growth', 'N/A')}% | "
+                    f"month {data_item.get('month_growth', 'N/A')}% | "
+                    f"year {data_item.get('year_growth', 'N/A')}%"
+                )
             else:
-                print(f"[{fund_code}] FundMNBaseInfo API 无数据: {result.get('ErrMsg', 'Unknown error')}")
+                print(f"[{fund_code}] FundMNBaseInfo API 无数�? {result.get('ErrMsg', 'Unknown error')}")
         else:
             print(f"[{fund_code}] FundMNBaseInfo API HTTP {response.status_code}")
     except Exception as e:
@@ -316,7 +379,7 @@ def get_fund_info(fund_code):
     for field in growth_fields:
         if field not in data_item:
             data_item[field] = 0.0
-            print(f"[{fund_code}] {field} 缺失，使用默认值 0.0")
+            print(f"[{fund_code}] {field} 缺失，使用默认�?0.0")
     
     if 'fund_name' not in data_item:
         data_item['fund_name'] = '未知'
@@ -325,17 +388,18 @@ def get_fund_info(fund_code):
     if 'day_growth' not in data_item:
         data_item['day_growth'] = 0.0
     
-    print(f"[{fund_code}] ✅ 数据获取完成: {data_item.get('fund_name')}")
+    print(f"[{fund_code}] �?数据获取完成: {data_item.get('fund_name')}")
     
     return data_item
 
+ensure_indexes()
 init_seed_funds()
 
 def check_db_status():
     if db_error_message:
         return jsonify({"status": "error", "message": db_error_message}), 500
     if collection is None:
-        return jsonify({"status": "error", "message": "数据库未初始化"}), 500
+        return jsonify({"status": "error", "message": "Database not initialized"}), 500
     return None
 
 def token_required(f):
@@ -368,14 +432,19 @@ def token_required(f):
 
 @app.route('/api/update')
 def update_funds():
+    auth_error = require_update_api_key()
+    if auth_error:
+        return auth_error
+
     db_check = check_db_status()
-    if db_check: return db_check
+    if db_check:
+        return db_check
     
     updated = []
     failed = []
     
     print("=" * 50)
-    print(f"开始更新基金数据，共 {len(DEFAULT_FUND_CODES)} 个基金")
+    print(f"Start updating funds, total {len(DEFAULT_FUND_CODES)} funds")
     print("=" * 50)
     
     for c in DEFAULT_FUND_CODES:
@@ -384,17 +453,17 @@ def update_funds():
             try:
                 collection.update_one({"fund_code": c}, {"$set": data}, upsert=True)
                 updated.append(c)
-                print(f"[{c}] ✅ 数据库更新成功")
+                print(f"[{c}] database updated successfully")
             except Exception as e:
-                failed.append({"code": c, "reason": f"数据库更新失败: {str(e)}"})
-                print(f"[{c}] ❌ 数据库更新失败: {str(e)}")
+                failed.append({"code": c, "reason": f"数据库更新失�? {str(e)}"})
+                print(f"[{c}] �?数据库更新失�? {str(e)}")
         else:
             failed.append({"code": c, "reason": "获取基金信息失败"})
         
         time.sleep(0.5)
     
     print("=" * 50)
-    print(f"更新完成: 成功 {len(updated)} 个，失败 {len(failed)} 个")
+    print(f"Update complete: success={len(updated)}, failed={len(failed)}")
     print("=" * 50)
     
     return jsonify({
@@ -407,6 +476,10 @@ def update_funds():
 
 @app.route('/api/update_seeds')
 def update_seed_funds():
+    auth_error = require_update_api_key()
+    if auth_error:
+        return auth_error
+
     """
     更新所有种子基金的完整数据
     """
@@ -417,7 +490,7 @@ def update_seed_funds():
     failed = []
     
     print("=" * 50)
-    print(f"开始更新种子基金数据，共 {len(SEED_FUNDS)} 个")
+    print(f"Start updating seed funds, total {len(SEED_FUNDS)} funds")
     print("=" * 50)
     
     for seed in SEED_FUNDS:
@@ -430,17 +503,17 @@ def update_seed_funds():
                 data["is_seed"] = True
                 collection.replace_one({"fund_code": fund_code}, data, upsert=True)
                 updated.append(fund_code)
-                print(f"[{fund_code}] ✅ 数据库更新成功")
+                print(f"[{fund_code}] seed fund updated successfully")
             except Exception as e:
-                failed.append({"code": fund_code, "reason": f"数据库更新失败: {str(e)}"})
-                print(f"[{fund_code}] ❌ 数据库更新失败: {str(e)}")
+                failed.append({"code": fund_code, "reason": f"数据库更新失�? {str(e)}"})
+                print(f"[{fund_code}] �?数据库更新失�? {str(e)}")
         else:
             failed.append({"code": fund_code, "reason": "获取基金信息失败"})
         
         time.sleep(0.5)
     
     print("=" * 50)
-    print(f"更新完成: 成功 {len(updated)} 个，失败 {len(failed)} 个")
+    print(f"Seed update complete: success={len(updated)}, failed={len(failed)}")
     print("=" * 50)
     
     return jsonify({
@@ -452,6 +525,7 @@ def update_seed_funds():
     })
 
 @app.route('/api/search_proxy')
+@app.route('/api/funds/search')
 def search_proxy():
     """
     搜索代理接口：调用天天基金网的搜索API
@@ -483,7 +557,7 @@ def search_proxy():
                         'fund_family': item.get('FUNDNAME', '')
                     })
                 
-                print(f"[搜索代理] 查询 '{query}' 找到 {len(results)} 个结果")
+                print(f"[search_proxy] query '{query}' returned {len(results)} results")
                 return jsonify(results)
             else:
                 return jsonify([])
@@ -556,7 +630,7 @@ def get_fund(fund_code):
         
         if data:
             collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
-            print(f"[{fund_code}] ✅ 从天天基金网获取成功并保存到数据库")
+            print(f"[{fund_code}] fetched from remote and stored successfully")
             return jsonify(data)
         else:
             return jsonify({"error": "Fund not found"}), 404
@@ -569,12 +643,12 @@ def get_fund(fund_code):
 def get_watchlist():
     print(f"[DEBUG] get_watchlist 被调用，方法: {request.method}")
     if request.method == 'OPTIONS':
-        print("[DEBUG] OPTIONS 请求，直接返回 200")
+        print("[DEBUG] OPTIONS 请求，直接返�?200")
         return jsonify({'status': 'ok'}), 200
     
     db_check = check_db_status()
     if db_check:
-        print(f"[DEBUG] 数据库检查失败: {db_check}")
+        print(f"[DEBUG] 数据库检查失�? {db_check}")
         return db_check
     
     token = None
@@ -593,7 +667,7 @@ def get_watchlist():
         current_user_id = data['userId']
         print(f"[DEBUG] Token 解码成功，用户ID: {current_user_id}")
     except jwt.ExpiredSignatureError:
-        print("[DEBUG] Token 已过期")
+        print("[DEBUG] Token expired")
         return jsonify({'error': 'Token has expired'}), 401
     except jwt.InvalidTokenError as e:
         print(f"[DEBUG] Token 无效: {str(e)}")
@@ -601,7 +675,7 @@ def get_watchlist():
     
     try:
         watchlist = list(watchlist_collection.find({'userId': current_user_id}, {'_id': 0}))
-        print(f"[关注列表] 用户 {current_user_id} 共 {len(watchlist)} 条记录")
+        print(f"[watchlist] user {current_user_id} has {len(watchlist)} items")
         return jsonify(watchlist)
     except Exception as e:
         print(f"获取关注列表失败: {str(e)}")
@@ -611,12 +685,12 @@ def get_watchlist():
 def add_to_watchlist():
     print(f"[DEBUG] add_to_watchlist 被调用，方法: {request.method}")
     if request.method == 'OPTIONS':
-        print("[DEBUG] OPTIONS 请求，直接返回 200")
+        print("[DEBUG] OPTIONS 请求，直接返�?200")
         return jsonify({'status': 'ok'}), 200
     
     db_check = check_db_status()
     if db_check:
-        print(f"[DEBUG] 数据库检查失败: {db_check}")
+        print(f"[DEBUG] 数据库检查失�? {db_check}")
         return db_check
     
     token = None
@@ -635,7 +709,7 @@ def add_to_watchlist():
         current_user_id = data['userId']
         print(f"[DEBUG] Token 解码成功，用户ID: {current_user_id}")
     except jwt.ExpiredSignatureError:
-        print("[DEBUG] Token 已过期")
+        print("[DEBUG] Token expired")
         return jsonify({'error': 'Token has expired'}), 401
     except jwt.InvalidTokenError as e:
         print(f"[DEBUG] Token 无效: {str(e)}")
@@ -658,7 +732,7 @@ def add_to_watchlist():
         })
         
         if existing:
-            print(f"[DEBUG] 基金 {fund_code} 已在关注列表中")
+            print(f"[DEBUG] Fund {fund_code} already in watchlist")
             return jsonify({'error': 'Fund already in watchlist'}), 400
         
         watchlist_item = {
@@ -770,13 +844,17 @@ def update_watchlist_threshold(fund_code):
         return jsonify(updated_item)
         
     except Exception as e:
-        print(f"更新阈值失败: {str(e)}")
+        print(f"更新阈值失�? {str(e)}")
         return jsonify({'error': 'Failed to update threshold'}), 500
 
 @app.route('/api/auth/register', methods=['POST', 'OPTIONS'])
 def register():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
+
+    db_check = check_db_status()
+    if db_check:
+        return db_check
     
     try:
         data = request.get_json()
@@ -789,7 +867,7 @@ def register():
         existing_user = users_collection.find_one({'email': email})
         
         if existing_user and existing_user.get('is_verified'):
-            print(f"[注册] ❌ 用户已存在且已验证: {email}")
+            print(f"[注册] �?用户已存在且已验�? {email}")
             return jsonify({'error': 'User already exists'}), 409
         
         import random
@@ -798,14 +876,14 @@ def register():
         success = send_verification_email(email, verification_code)
         
         if not success:
-            print(f"[注册] ❌ 用户 {email} 邮件发送失败，拒绝注册")
+            print(f"[注册] �?用户 {email} 邮件发送失败，拒绝注册")
             return jsonify({'error': '邮件服务通讯失败，请检查配置或稍后重试'}), 500
         
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
         
         pending_user = {
             'email': email,
-            'password': password,
+            'password': hash_password(password),
             'verification_code': verification_code,
             'verification_code_expires': expires_at,
             'createdAt': datetime.now(timezone.utc)
@@ -817,17 +895,21 @@ def register():
             upsert=True
         )
         
-        print(f"[注册] ✅ 用户 {email} 验证码已发送，存入pending_users")
+        print(f"[注册] �?用户 {email} 验证码已发送，存入pending_users")
         return jsonify({'status': 'success', 'message': 'Verification code sent to your email'}), 200
         
     except Exception as e:
-        print(f"[注册] ❌ 注册失败: {str(e)}")
+        print(f"[注册] �?注册失败: {str(e)}")
         return jsonify({'error': 'Registration failed'}), 500
 
 @app.route('/api/auth/verify', methods=['POST', 'OPTIONS'])
 def verify():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
+
+    db_check = check_db_status()
+    if db_check:
+        return db_check
     
     try:
         data = request.get_json()
@@ -837,19 +919,19 @@ def verify():
         print(f"[验证] 收到验证请求: email={email}, code={code}")
         
         if not email or not code:
-            print(f"[验证] ❌ 参数缺失: email={email}, code={code}")
+            print(f"[验证] �?参数缺失: email={email}, code={code}")
             return jsonify({'error': 'Email and verification code are required'}), 400
         
         pending_user = pending_users_collection.find_one({'email': email})
         
         if not pending_user:
-            print(f"[验证] ❌ 待验证用户不存在: {email}")
+            print(f"[验证] �?待验证用户不存在: {email}")
             return jsonify({'error': 'User not found or registration expired'}), 404
         
         stored_code = pending_user.get('verification_code')
         expires_at = pending_user.get('verification_code_expires')
         
-        print(f"[验证] 数据库存储: stored_code={stored_code}, type={type(stored_code)}")
+        print(f"[验证] 数据库存�? stored_code={stored_code}, type={type(stored_code)}")
         print(f"[验证] 前端传入: code={code}, type={type(code)}")
         print(f"[验证] 过期时间: {expires_at}, type={type(expires_at)}")
         
@@ -859,7 +941,7 @@ def verify():
         print(f"[验证] 比较: code_str='{code_str}' vs stored_code_str='{stored_code_str}'")
         
         if code_str != stored_code_str:
-            print(f"[验证] ❌ 验证码不匹配")
+            print(f"[验证] �?验证码不匹配")
             return jsonify({'error': 'Invalid verification code'}), 400
         
         if expires_at:
@@ -869,7 +951,7 @@ def verify():
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
                 print(f"[验证] 时间比较: now={now}, expires_at={expires_at}")
                 if now > expires_at:
-                    print(f"[验证] ❌ 验证码已过期")
+                    print(f"[验证] �?验证码已过期")
                     return jsonify({'error': 'Verification code expired'}), 400
             else:
                 print(f"[验证] ⚠️ expires_at 类型异常: {type(expires_at)}")
@@ -881,9 +963,14 @@ def verify():
             'verified_at': datetime.now(timezone.utc),
             'createdAt': pending_user.get('createdAt', datetime.now(timezone.utc))
         }
-        
-        result = users_collection.insert_one(verified_user)
-        user_id = str(result.inserted_id)
+
+        users_collection.update_one(
+            {'email': email},
+            {'$set': verified_user},
+            upsert=True
+        )
+        saved_user = users_collection.find_one({'email': email})
+        user_id = str(saved_user['_id'])
         
         pending_users_collection.delete_one({'email': email})
         
@@ -894,7 +981,7 @@ def verify():
         }
         token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
         
-        print(f"[验证] ✅ 用户 {email} 验证成功，已写入users集合")
+        print(f"[验证] �?用户 {email} 验证成功，已写入users集合")
         return jsonify({
             'status': 'success',
             'message': 'Verification successful',
@@ -903,15 +990,61 @@ def verify():
         }), 200
         
     except Exception as e:
-        print(f"[验证] ❌ 验证失败: {str(e)}")
+        print(f"[验证] �?验证失败: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Verification failed'}), 500
+
+
+@app.route('/api/auth/resend', methods=['POST', 'OPTIONS'])
+def resend_verification():
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
+
+    db_check = check_db_status()
+    if db_check:
+        return db_check
+
+    try:
+        data = request.get_json() or {}
+        email = data.get('email')
+
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
+        pending_user = pending_users_collection.find_one({'email': email})
+        if not pending_user:
+            return jsonify({'error': 'User not found or registration expired'}), 404
+
+        import random
+        verification_code = str(random.randint(100000, 999999))
+        success = send_verification_email(email, verification_code)
+        if not success:
+            return jsonify({'error': 'Failed to send verification code'}), 500
+
+        pending_users_collection.update_one(
+            {'email': email},
+            {
+                '$set': {
+                    'verification_code': verification_code,
+                    'verification_code_expires': datetime.now(timezone.utc) + timedelta(minutes=10)
+                }
+            }
+        )
+
+        return jsonify({'status': 'success', 'message': 'Verification code resent'}), 200
+    except Exception as e:
+        print(f"[重新发送_ �?失败: {str(e)}")
+        return jsonify({'error': 'Resend failed'}), 500
 
 @app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
+
+    db_check = check_db_status()
+    if db_check:
+        return db_check
     
     try:
         data = request.get_json()
@@ -921,10 +1054,17 @@ def login():
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
-        user = users_collection.find_one({'email': email, 'password': password})
-        
-        if not user:
+        user = users_collection.find_one({'email': email})
+
+        if not user or not verify_password(user.get('password'), password):
             return jsonify({'error': 'Invalid email or password'}), 401
+
+        # Migrate legacy plaintext password to hashed password after successful login.
+        if user.get('password') == password:
+            users_collection.update_one(
+                {'_id': user['_id']},
+                {'$set': {'password': hash_password(password)}}
+            )
         
         payload = {
             'userId': str(user['_id']),
@@ -942,7 +1082,7 @@ def login():
         }), 200
         
     except Exception as e:
-        print(f"[登录] ❌ 登录失败: {str(e)}")
+        print(f"[登录] �?登录失败: {str(e)}")
         return jsonify({'error': 'Login failed'}), 500
 
 @app.route('/')
@@ -967,3 +1107,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"Starting Flask server on port {port}...")
     app.run(host='0.0.0.0', port=port)
+

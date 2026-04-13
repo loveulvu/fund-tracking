@@ -7,8 +7,8 @@ from pymongo import MongoClient
 from datetime import datetime
 
 MONGO_URI = os.environ.get("MONGO_URI")
-MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
-MAIL_SENDER = os.environ.get("MAIL_SENDER", "no-reply@fundtracking.online")
+MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD") or os.environ.get("RESEND_API_KEY")
+MAIL_SENDER = os.environ.get("MAIL_SENDER") or os.environ.get("SENDER_EMAIL") or "no-reply@fundtracking.online"
 
 if not MONGO_URI:
     print("[错误] MONGO_URI 环境变量缺失")
