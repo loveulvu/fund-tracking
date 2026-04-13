@@ -679,7 +679,11 @@ def get_funds():
             except:
                 pass
         
-        all_funds = list(collection.find({}, {"_id": 0}))
+        # Only return default seed funds for the main funds list.
+        # This prevents ad-hoc searched funds from polluting the default list count.
+        all_funds = list(
+            collection.find({"fund_code": {"$in": DEFAULT_FUND_CODES}}, {"_id": 0})
+        )
         
         for fund in all_funds:
             if fund.get('fund_code') in watched_fund_codes:
@@ -720,8 +724,13 @@ def get_fund(fund_code):
         data = get_fund_info(fund_code)
 
         if data:
-            collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
-            print(f"[{fund_code}] fetched from remote and stored successfully")
+            # Persist only default funds, or refresh an already-cached fund.
+            should_persist = (fund_code in DEFAULT_FUND_CODES) or (fund_data is not None)
+            if should_persist:
+                collection.update_one({"fund_code": fund_code}, {"$set": data}, upsert=True)
+                print(f"[{fund_code}] fetched from remote and stored successfully")
+            else:
+                print(f"[{fund_code}] fetched from remote (not persisted, non-default fund)")
             return jsonify(data)
 
         if fund_data:
