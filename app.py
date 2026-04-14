@@ -23,10 +23,30 @@ EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 UPDATE_API_KEY = os.environ.get("UPDATE_API_KEY")
 AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", "180"))
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
+APP_COMMIT_SHA = (
+    os.environ.get("GIT_COMMIT")
+    or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+    or os.environ.get("SOURCE_VERSION")
+    or ""
+)
+APP_BUILT_AT = os.environ.get("APP_BUILT_AT")
 refresh_lock = threading.Lock()
 
 if "JWT_SECRET" not in os.environ:
     print("[security] WARNING: JWT_SECRET is using fallback value. Please set JWT_SECRET in Railway.")
+
+
+def get_version_payload():
+    short_commit = APP_COMMIT_SHA[:7] if APP_COMMIT_SHA else None
+    return {
+        "service": "fund-tracking-api",
+        "version": APP_VERSION,
+        "commit": short_commit,
+        "commit_full": APP_COMMIT_SHA or None,
+        "built_at": APP_BUILT_AT,
+        "server_time": int(time.time())
+    }
 
 
 def require_update_api_key():
@@ -1189,9 +1209,15 @@ def login():
 
 @app.route('/')
 def index():
+    version = get_version_payload()
+    version_text = f"version={version['version']}, commit={version['commit'] or 'unknown'}"
     if db_error_message:
-        return f"API is Running, but Database Error: {db_error_message}", 200
-    return "Fund Tracking API is Running successfully with DB connected.", 200
+        return f"API is Running, but Database Error: {db_error_message} ({version_text})", 200
+    return f"Fund Tracking API is Running successfully with DB connected. ({version_text})", 200
+
+@app.route('/api/version')
+def api_version():
+    return jsonify(get_version_payload())
 
 @app.route('/health')
 def health():
@@ -1202,6 +1228,7 @@ def health():
 
     return jsonify({
         "status": "ok",
+        "version": get_version_payload(),
         "db_connected": collection is not None,
         "db_error": db_error_message,
         "latest_update_time": latest_update_time,
@@ -1211,7 +1238,10 @@ def health():
 
 @app.route('/api/health')
 def api_health():
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "status": "ok",
+        "version": get_version_payload()
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

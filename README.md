@@ -68,6 +68,8 @@ EMAIL_SENDER=your_resend_sender
 EMAIL_PASSWORD=your_resend_api_key
 UPDATE_API_KEY=optional_update_key
 AUTO_REFRESH_INTERVAL_SECONDS=180
+APP_VERSION=2026.04.14
+APP_BUILT_AT=2026-04-14T00:00:00Z
 PORT=8080
 ```
 
@@ -122,6 +124,7 @@ Health:
 - `GET /`
 - `GET /health`
 - `GET /api/health`
+- `GET /api/version`
 
 ## Deployment Notes
 

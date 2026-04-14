@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.fundtracking.online';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.fundtracking.online';
 
 export const api = {
   getFunds: (options = {}) => fetch(`${API_BASE_URL}/api/funds`, options),
