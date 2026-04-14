@@ -139,6 +139,9 @@ Health:
 - `CRITICAL: MONGO_URI is missing`: set `MONGO_URI` in env.
 - Email verify fails: check `EMAIL_SENDER` and `EMAIL_PASSWORD` (Resend API key).
 - Empty or stale fund data: call `/api/update_seeds` with update key.
+- Release verification:
+  - Backend should expose `GET /api/version` (non-404).
+  - Frontend bottom-right badge should show both `FE` and `BE` versions.
 
 ## License
 
