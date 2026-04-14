@@ -14,7 +14,20 @@ from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["https://fundtracking.online", "https://www.fundtracking.online", "http://localhost:3000"]}}, supports_credentials=True)
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://fundtracking.online",
+                "https://www.fundtracking.online",
+                "https://fund-tracking-production.up.railway.app",
+                "http://localhost:3000"
+            ]
+        }
+    },
+    supports_credentials=True
+)
 
 # 1. 鐜鍙橀噺璇诲彇
 MONGO_URI = os.environ.get("MONGO_URI")
