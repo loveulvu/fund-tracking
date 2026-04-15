@@ -4,6 +4,14 @@ import time
 import requests
 
 
+def _safe_print(message):
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        fallback = str(message).encode("utf-8", errors="replace").decode("utf-8")
+        print(fallback)
+
+
 def validate_fund_data(fund_data, expected_code, expected_name_hint=None):
     if not fund_data:
         return False, "数据为空"
@@ -72,7 +80,7 @@ def get_fund_info(fund_code):
                 float(fund_data.get("gszzl", 0)) if fund_data.get("gszzl") else 0.0
             )
 
-            print(
+            _safe_print(
                 f"[{fund_code}] fundgz API: "
                 f"{data_item.get('fund_name')} | "
                 f"net {data_item.get('net_value')} | "
@@ -162,6 +170,5 @@ def get_fund_info(fund_code):
     if "day_growth" not in data_item:
         data_item["day_growth"] = 0.0
 
-    print(f"[{fund_code}] fetch completed: {data_item.get('fund_name')}")
+    _safe_print(f"[{fund_code}] fetch completed: {data_item.get('fund_name')}")
     return data_item
-

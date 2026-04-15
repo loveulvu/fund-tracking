@@ -9,7 +9,11 @@ from ..services.auth_service import (
     hash_password,
     verify_password,
 )
-from ..services.email_service import send_verification_email
+from ..services.email_service import (
+    email_config_missing_message,
+    is_email_configured,
+    send_verification_email,
+)
 from ..utils.response import check_db_status, options_ok
 
 auth_bp = Blueprint("auth", __name__)
@@ -36,6 +40,9 @@ def register():
         if existing_user and existing_user.get("is_verified"):
             print(f"[register] user already exists and verified: {email}")
             return jsonify({"error": "User already exists"}), 409
+
+        if not is_email_configured():
+            return jsonify({"error": email_config_missing_message()}), 503
 
         verification_code = generate_verification_code()
         success = send_verification_email(email, verification_code)
@@ -164,6 +171,9 @@ def resend_verification():
         pending_user = extensions.pending_users_collection.find_one({"email": email})
         if not pending_user:
             return jsonify({"error": "User not found or registration expired"}), 404
+
+        if not is_email_configured():
+            return jsonify({"error": email_config_missing_message()}), 503
 
         verification_code = generate_verification_code()
         success = send_verification_email(email, verification_code)
