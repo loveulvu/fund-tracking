@@ -3,6 +3,13 @@ import Link from 'next/link';
 import api from '../lib/api';
 import styles from '../../styles/Dashboard.module.css';
 
+const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/', active: true },
+  { label: 'Funds', href: '/about' },
+  { label: 'Watchlist', href: '/profile' },
+  { label: 'Login', href: '/login' },
+];
+
 function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '暂无数据';
@@ -24,6 +31,35 @@ function getChangeClass(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.neutral;
   return number > 0 ? styles.positive : styles.negative;
+}
+
+function getToneClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
+  return number > 0 ? styles.tonePositive : styles.toneNegative;
+}
+
+function StatCard({ label, value, hint, tone = 'blue', blocked = false }) {
+  return (
+    <article className={[styles.statCard, blocked ? styles.statCardMuted : ''].join(' ')}>
+      <div className={[styles.statIcon, styles[`statIcon_${tone}`]].join(' ')} aria-hidden="true" />
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <p>{hint}</p>
+      </div>
+    </article>
+  );
+}
+
+function EmptyState({ title, message }) {
+  return (
+    <div className={styles.emptyState}>
+      <div className={styles.emptyMark} aria-hidden="true" />
+      <strong>{title}</strong>
+      <p>{message}</p>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -80,7 +116,13 @@ export default function Home() {
       const code = String(fund.fund_code || '').toLowerCase();
       const name = String(fund.fund_name || '').toLowerCase();
       const type = String(fund.fund_type || '').toLowerCase();
-      return code.includes(keyword) || name.includes(keyword) || type.includes(keyword);
+      const company = String(fund.fund_company || '').toLowerCase();
+      return (
+        code.includes(keyword) ||
+        name.includes(keyword) ||
+        type.includes(keyword) ||
+        company.includes(keyword)
+      );
     });
   }, [funds, query]);
 
@@ -100,92 +142,122 @@ export default function Home() {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
   }, [funds]);
 
-  const watchedCount = useMemo(() => {
-    return funds.filter((fund) => fund.is_watched).length;
+  const positiveCount = useMemo(() => {
+    return funds.filter((fund) => Number(fund.day_growth) > 0).length;
   }, [funds]);
 
-  const featuredFunds = filteredFunds.slice(0, 3);
+  const featuredFunds = filteredFunds.slice(0, 4);
 
   return (
     <main className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
           <span className={styles.brandMark}>FT</span>
-          <span>FundTracking</span>
+          <div>
+            <strong>FundTracking</strong>
+            <small>Fund dashboard</small>
+          </div>
         </div>
 
-        <nav className={styles.nav}>
-          <Link href="/" className={styles.navActive}>Dashboard</Link>
-          <Link href="/about">Funds</Link>
-          <Link href="/profile">Watchlist</Link>
-          <Link href="/login">Login</Link>
+        <nav className={styles.nav} aria-label="Main navigation">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={item.active ? styles.navActive : ''}
+            >
+              <span className={styles.navDot} aria-hidden="true" />
+              {item.label}
+            </Link>
+          ))}
         </nav>
+
+        <div className={styles.sidebarNote}>
+          <span>Portfolio data</span>
+          <strong>需要接入持仓数据</strong>
+          <p>总资产、收益和配置图暂不展示真实数值。</p>
+        </div>
       </aside>
 
       <section className={styles.content}>
         <header className={styles.topbar}>
           <label className={styles.search}>
-            <span>Search</span>
+            <span aria-hidden="true" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="输入基金名称、代码或类型"
+              placeholder="搜索基金名称、代码、公司或类型"
             />
           </label>
-          <div className={styles.status}>
+          <div className={[styles.status, error ? styles.statusError : ''].join(' ')}>
             {loading ? '加载中' : error ? '接口异常' : '真实接口数据'}
           </div>
         </header>
 
-        <section className={styles.heading}>
+        <section className={styles.hero}>
           <div>
-            <p className={styles.eyebrow}>Dashboard</p>
+            <p className={styles.eyebrow}>Fund Dashboard</p>
             <h1>基金追踪概览</h1>
-            <p>当前页面只展示后端已有接口能返回的数据，持仓和资产收益暂不模拟。</p>
+            <p>
+              基于现有 <code>/api/funds</code> 接口展示基金净值和阶段表现。
+              持仓、资产和收益类模块保持占位，不模拟真实资产。
+            </p>
+          </div>
+          <div className={styles.heroMeta}>
+            <span>最新更新时间</span>
+            <strong>{formatTimestamp(latestUpdate)}</strong>
           </div>
         </section>
 
-        <section className={styles.cards}>
-          <article className={styles.card}>
-            <span>基金数量</span>
-            <strong>{loading ? '加载中' : funds.length}</strong>
-            <p>来自 /api/funds</p>
-          </article>
-          <article className={styles.card}>
-            <span>平均日涨跌幅</span>
-            <strong className={getChangeClass(averageDayChange)}>
-              {averageDayChange === null ? '暂无数据' : formatPercent(averageDayChange)}
-            </strong>
-            <p>按当前列表简单平均</p>
-          </article>
-          <article className={styles.card}>
-            <span>关注数量</span>
-            <strong>{watchedCount > 0 ? watchedCount : '暂无数据'}</strong>
-            <p>未登录时后端不会返回个人关注</p>
-          </article>
-          <article className={styles.card}>
-            <span>资产与收益</span>
-            <strong>需要接入持仓数据</strong>
-            <p>不伪造总资产或收益金额</p>
-          </article>
+        <section className={styles.statsGrid}>
+          <StatCard
+            label="基金数量"
+            value={loading ? '加载中' : funds.length}
+            hint="来自 /api/funds"
+            tone="blue"
+          />
+          <StatCard
+            label="平均日涨跌幅"
+            value={averageDayChange === null ? '暂无数据' : formatPercent(averageDayChange)}
+            hint="按当前基金列表简单平均"
+            tone={Number(averageDayChange) >= 0 ? 'green' : 'red'}
+          />
+          <StatCard
+            label="上涨基金"
+            value={loading ? '加载中' : positiveCount}
+            hint="基于 day_growth 统计"
+            tone="green"
+          />
+          <StatCard
+            label="资产与收益"
+            value="需要接入持仓数据"
+            hint="不伪造总资产或收益金额"
+            tone="gray"
+            blocked
+          />
         </section>
 
-        <section className={styles.grid}>
+        <section className={styles.mainGrid}>
           <article className={styles.panel}>
             <div className={styles.panelHeader}>
               <div>
                 <h2>基金列表</h2>
-                <p>最新更新时间：{formatTimestamp(latestUpdate)}</p>
+                <p>{filteredFunds.length} 条匹配结果</p>
               </div>
-              <span>{filteredFunds.length} 条</span>
+              <span className={styles.panelBadge}>实时接口</span>
             </div>
 
             {loading ? (
-              <div className={styles.empty}>正在加载基金数据</div>
+              <div className={styles.loadingList} aria-label="正在加载基金数据">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
             ) : error ? (
-              <div className={styles.empty}>暂无数据：{error}</div>
+              <EmptyState title="暂无数据" message={error} />
             ) : filteredFunds.length === 0 ? (
-              <div className={styles.empty}>暂无数据</div>
+              <EmptyState title="暂无数据" message="没有找到匹配的基金，请换个关键词试试。" />
             ) : (
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
@@ -202,12 +274,22 @@ export default function Home() {
                   </thead>
                   <tbody>
                     {filteredFunds.map((fund) => (
-                      <tr key={fund.fund_code}>
-                        <td>{formatValue(fund.fund_name)}</td>
+                      <tr key={fund.fund_code || fund.fund_name}>
+                        <td>
+                          <div className={styles.fundIdentity}>
+                            <span>{String(fund.fund_name || '基金').slice(0, 1)}</span>
+                            <div>
+                              <strong>{formatValue(fund.fund_name)}</strong>
+                              <small>{formatValue(fund.fund_company)}</small>
+                            </div>
+                          </div>
+                        </td>
                         <td>{formatValue(fund.fund_code)}</td>
                         <td>{formatValue(fund.net_value)}</td>
-                        <td className={getChangeClass(fund.day_growth)}>
-                          {formatPercent(fund.day_growth)}
+                        <td>
+                          <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                            {formatPercent(fund.day_growth)}
+                          </span>
                         </td>
                         <td className={getChangeClass(fund.month_growth)}>
                           {formatPercent(fund.month_growth)}
@@ -215,7 +297,9 @@ export default function Home() {
                         <td className={getChangeClass(fund.year_growth)}>
                           {formatPercent(fund.year_growth)}
                         </td>
-                        <td>{formatValue(fund.fund_type)}</td>
+                        <td>
+                          <span className={styles.typeBadge}>{formatValue(fund.fund_type)}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -224,44 +308,59 @@ export default function Home() {
             )}
           </article>
 
-          <aside className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <div>
-                <h2>基础信息</h2>
-                <p>前 3 只匹配基金</p>
+          <aside className={styles.sideColumn}>
+            <article className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>基础信息</h2>
+                  <p>前 4 只匹配基金</p>
+                </div>
               </div>
-            </div>
 
-            {loading ? (
-              <div className={styles.empty}>正在加载基础信息</div>
-            ) : featuredFunds.length === 0 ? (
-              <div className={styles.empty}>暂无数据</div>
-            ) : (
-              <div className={styles.fundCards}>
-                {featuredFunds.map((fund) => (
-                  <article key={fund.fund_code} className={styles.fundCard}>
-                    <div>
-                      <h3>{formatValue(fund.fund_name)}</h3>
-                      <p>{formatValue(fund.fund_code)}</p>
-                    </div>
-                    <dl>
-                      <div>
-                        <dt>基金公司</dt>
-                        <dd>{formatValue(fund.fund_company)}</dd>
+              {loading ? (
+                <div className={styles.loadingCards}>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : featuredFunds.length === 0 ? (
+                <EmptyState title="暂无数据" message="基金基础信息来自 /api/funds。" />
+              ) : (
+                <div className={styles.fundCards}>
+                  {featuredFunds.map((fund) => (
+                    <article key={fund.fund_code || fund.fund_name} className={styles.fundCard}>
+                      <div className={styles.fundCardTop}>
+                        <div>
+                          <h3>{formatValue(fund.fund_name)}</h3>
+                          <p>{formatValue(fund.fund_code)}</p>
+                        </div>
+                        <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                          {formatPercent(fund.day_growth)}
+                        </span>
                       </div>
-                      <div>
-                        <dt>基金经理</dt>
-                        <dd>{formatValue(fund.fund_manager)}</dd>
-                      </div>
-                      <div>
-                        <dt>基金规模</dt>
-                        <dd>{formatValue(fund.fund_scale)}</dd>
-                      </div>
-                    </dl>
-                  </article>
-                ))}
+                      <dl>
+                        <div>
+                          <dt>基金经理</dt>
+                          <dd>{formatValue(fund.fund_manager)}</dd>
+                        </div>
+                        <div>
+                          <dt>基金规模</dt>
+                          <dd>{formatValue(fund.fund_scale)}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+
+            <article className={styles.placeholderPanel}>
+              <div>
+                <span>Portfolio chart</span>
+                <strong>需要接入持仓数据</strong>
+                <p>投资组合收益曲线和资产配置图需要用户持仓、份额和历史市值。</p>
               </div>
-            )}
+            </article>
           </aside>
         </section>
       </section>
