@@ -400,6 +400,15 @@
   background: #fbfdff;
 }
 
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:hover .detailButton {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
 .fundIdentity {
   display: flex;
   align-items: center;
@@ -446,6 +455,22 @@
 .typeBadge {
   background: #f1f5f9;
   color: #475569;
+}
+
+.detailButton {
+  min-height: 32px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2563eb;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.detailButton:hover {
+  background: #eff6ff;
 }
 
 .tonePositive {
@@ -556,6 +581,162 @@
     #ffffff;
 }
 
+.detailLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detailBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.24);
+  cursor: default;
+}
+
+.detailPanel {
+  position: relative;
+  width: min(460px, 100%);
+  height: 100%;
+  overflow-y: auto;
+  background: #ffffff;
+  box-shadow: -22px 0 50px rgba(15, 23, 42, 0.18);
+  padding: 22px;
+}
+
+.detailHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.detailHeader span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detailHeader h2 {
+  margin-top: 8px;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.detailHeader p {
+  color: #64748b;
+  margin-top: 6px;
+}
+
+.closeButton {
+  min-height: 34px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.detailSummary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.detailSummary > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.detailSummary span,
+.detailList dt {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.detailSummary strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.detailSummary p {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.detailList {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.detailList div {
+  min-width: 0;
+  padding: 13px 14px;
+  border-right: 1px solid #edf2f7;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.detailList div:nth-child(2n) {
+  border-right: 0;
+}
+
+.detailList div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.detailList dd {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.detailNote {
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+  margin-top: 18px;
+  padding: 15px;
+}
+
+.detailNote strong {
+  display: block;
+  color: #1d4ed8;
+  font-size: 14px;
+}
+
+.detailNote p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+  margin-top: 7px;
+}
+
 .positive {
   color: #15803d;
 }
@@ -631,5 +812,32 @@
 
   .fundCard dl {
     grid-template-columns: 1fr;
+  }
+
+  .detailLayer {
+    align-items: flex-end;
+  }
+
+  .detailPanel {
+    width: 100%;
+    height: min(88vh, 720px);
+    border-radius: 18px 18px 0 0;
+    padding: 18px;
+  }
+
+  .detailSummary,
+  .detailList {
+    grid-template-columns: 1fr;
+  }
+
+  .detailList div,
+  .detailList div:nth-child(2n),
+  .detailList div:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid #edf2f7;
+  }
+
+  .detailList div:last-child {
+    border-bottom: 0;
   }
 }

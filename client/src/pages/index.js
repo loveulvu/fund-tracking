@@ -10,6 +10,25 @@ const NAV_ITEMS = [
   { label: 'Login', href: '/login' },
 ];
 
+const DETAIL_FIELDS = [
+  { label: '基金名称', key: 'fund_name' },
+  { label: '基金代码', key: 'fund_code' },
+  { label: '基金类型', key: 'fund_type' },
+  { label: '基金公司', key: 'fund_company' },
+  { label: '基金经理', key: 'fund_manager' },
+  { label: '基金规模', key: 'fund_scale' },
+  { label: '当前净值', key: 'net_value' },
+  { label: '净值日期', key: 'net_value_date' },
+  { label: '日涨跌幅', key: 'day_growth', format: formatPercent },
+  { label: '近1周收益', key: 'week_growth', format: formatPercent },
+  { label: '近1月收益', key: 'month_growth', format: formatPercent },
+  { label: '近3月收益', key: 'three_month_growth', format: formatPercent },
+  { label: '近6月收益', key: 'six_month_growth', format: formatPercent },
+  { label: '近1年收益', key: 'year_growth', format: formatPercent },
+  { label: '近3年收益', key: 'three_year_growth', format: formatPercent },
+  { label: '更新时间', key: 'update_time', format: formatTimestamp },
+];
+
 function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '暂无数据';
@@ -62,9 +81,70 @@ function EmptyState({ title, message }) {
   );
 }
 
+function FundDetailPanel({ fund, onClose }) {
+  if (!fund) return null;
+
+  return (
+    <div className={styles.detailLayer} role="presentation">
+      <button
+        className={styles.detailBackdrop}
+        type="button"
+        aria-label="关闭基金详情"
+        onClick={onClose}
+      />
+      <aside className={styles.detailPanel} aria-label="基金详情">
+        <div className={styles.detailHeader}>
+          <div>
+            <span>Fund details</span>
+            <h2>{formatValue(fund.fund_name)}</h2>
+            <p>{formatValue(fund.fund_code)}</p>
+          </div>
+          <button className={styles.closeButton} type="button" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+
+        <div className={styles.detailSummary}>
+          <div>
+            <span>当前净值</span>
+            <strong>{formatValue(fund.net_value)}</strong>
+            <p>{formatValue(fund.net_value_date)}</p>
+          </div>
+          <div>
+            <span>日涨跌幅</span>
+            <strong className={getChangeClass(fund.day_growth)}>
+              {formatPercent(fund.day_growth)}
+            </strong>
+            <p>来自 /api/funds</p>
+          </div>
+        </div>
+
+        <dl className={styles.detailList}>
+          {DETAIL_FIELDS.map((field) => (
+            <div key={field.key}>
+              <dt>{field.label}</dt>
+              <dd>
+                {field.format
+                  ? field.format(fund[field.key])
+                  : formatValue(fund[field.key])}
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className={styles.detailNote}>
+          <strong>需要接入持仓数据</strong>
+          <p>总资产、持仓金额、资产配置图和投资组合曲线当前没有真实数据来源。</p>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export default function Home() {
   const [funds, setFunds] = useState([]);
   const [query, setQuery] = useState('');
+  const [selectedFund, setSelectedFund] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -270,11 +350,16 @@ export default function Home() {
                       <th>近1月</th>
                       <th>近1年</th>
                       <th>类型</th>
+                      <th>详情</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredFunds.map((fund) => (
-                      <tr key={fund.fund_code || fund.fund_name}>
+                      <tr
+                        key={fund.fund_code || fund.fund_name}
+                        className={styles.clickableRow}
+                        onClick={() => setSelectedFund(fund)}
+                      >
                         <td>
                           <div className={styles.fundIdentity}>
                             <span>{String(fund.fund_name || '基金').slice(0, 1)}</span>
@@ -299,6 +384,18 @@ export default function Home() {
                         </td>
                         <td>
                           <span className={styles.typeBadge}>{formatValue(fund.fund_type)}</span>
+                        </td>
+                        <td>
+                          <button
+                            className={styles.detailButton}
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedFund(fund);
+                            }}
+                          >
+                            查看详情
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -364,6 +461,7 @@ export default function Home() {
           </aside>
         </section>
       </section>
+      <FundDetailPanel fund={selectedFund} onClose={() => setSelectedFund(null)} />
     </main>
   );
 }
