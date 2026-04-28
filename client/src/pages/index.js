@@ -226,6 +226,13 @@ export default function Home() {
     return funds.filter((fund) => Number(fund.day_growth) > 0).length;
   }, [funds]);
 
+  const topDailyFunds = useMemo(() => {
+    return [...funds]
+      .filter((fund) => Number.isFinite(Number(fund.day_growth)))
+      .sort((a, b) => Number(b.day_growth) - Number(a.day_growth))
+      .slice(0, 4);
+  }, [funds]);
+
   const featuredFunds = filteredFunds.slice(0, 4);
 
   return (
@@ -309,103 +316,160 @@ export default function Home() {
             tone="green"
           />
           <StatCard
-            label="资产与收益"
-            value="需要接入持仓数据"
-            hint="不伪造总资产或收益金额"
-            tone="gray"
-            blocked
+            label="最新更新时间"
+            value={formatTimestamp(latestUpdate)}
+            hint="基于 update_time"
+            tone="blue"
           />
         </section>
 
         <section className={styles.mainGrid}>
-          <article className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <div>
-                <h2>基金列表</h2>
-                <p>{filteredFunds.length} 条匹配结果</p>
+          <section className={styles.mainColumn}>
+            <article className={styles.chartPanel}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>Portfolio Performance</h2>
+                  <p>组合收益曲线</p>
+                </div>
+                <span className={styles.panelBadgeMuted}>数据源未接入</span>
               </div>
-              <span className={styles.panelBadge}>实时接口</span>
-            </div>
+              <div className={styles.chartPlaceholder}>
+                <div className={styles.chartGrid} aria-hidden="true" />
+                <div className={styles.placeholderCopy}>
+                  <strong>需要接入持仓数据后展示组合收益曲线</strong>
+                  <p>当前只有基金行情数据，没有用户持仓、份额和组合历史市值。</p>
+                </div>
+              </div>
+            </article>
 
-            {loading ? (
-              <div className={styles.loadingList} aria-label="正在加载基金数据">
-                <span />
-                <span />
-                <span />
-                <span />
+            <article className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>基金列表</h2>
+                  <p>{filteredFunds.length} 条匹配结果</p>
+                </div>
+                <span className={styles.panelBadge}>实时接口</span>
               </div>
-            ) : error ? (
-              <EmptyState title="暂无数据" message={error} />
-            ) : filteredFunds.length === 0 ? (
-              <EmptyState title="暂无数据" message="没有找到匹配的基金，请换个关键词试试。" />
-            ) : (
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>基金</th>
-                      <th>代码</th>
-                      <th>净值</th>
-                      <th>日涨跌</th>
-                      <th>近1月</th>
-                      <th>近1年</th>
-                      <th>类型</th>
-                      <th>详情</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredFunds.map((fund) => (
-                      <tr
-                        key={fund.fund_code || fund.fund_name}
-                        className={styles.clickableRow}
-                        onClick={() => setSelectedFund(fund)}
-                      >
-                        <td>
-                          <div className={styles.fundIdentity}>
-                            <span>{String(fund.fund_name || '基金').slice(0, 1)}</span>
-                            <div>
-                              <strong>{formatValue(fund.fund_name)}</strong>
-                              <small>{formatValue(fund.fund_company)}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td>{formatValue(fund.fund_code)}</td>
-                        <td>{formatValue(fund.net_value)}</td>
-                        <td>
-                          <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
-                            {formatPercent(fund.day_growth)}
-                          </span>
-                        </td>
-                        <td className={getChangeClass(fund.month_growth)}>
-                          {formatPercent(fund.month_growth)}
-                        </td>
-                        <td className={getChangeClass(fund.year_growth)}>
-                          {formatPercent(fund.year_growth)}
-                        </td>
-                        <td>
-                          <span className={styles.typeBadge}>{formatValue(fund.fund_type)}</span>
-                        </td>
-                        <td>
-                          <button
-                            className={styles.detailButton}
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedFund(fund);
-                            }}
-                          >
-                            查看详情
-                          </button>
-                        </td>
+
+              {loading ? (
+                <div className={styles.loadingList} aria-label="正在加载基金数据">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : error ? (
+                <EmptyState title="暂无数据" message={error} />
+              ) : filteredFunds.length === 0 ? (
+                <EmptyState title="暂无数据" message="没有找到匹配的基金，请换个关键词试试。" />
+              ) : (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>基金</th>
+                        <th>代码</th>
+                        <th>净值</th>
+                        <th>日涨跌</th>
+                        <th>近1月</th>
+                        <th>近1年</th>
+                        <th>类型</th>
+                        <th>详情</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </article>
+                    </thead>
+                    <tbody>
+                      {filteredFunds.map((fund) => (
+                        <tr
+                          key={fund.fund_code || fund.fund_name}
+                          className={styles.clickableRow}
+                          onClick={() => setSelectedFund(fund)}
+                        >
+                          <td>
+                            <div className={styles.fundIdentity}>
+                              <span>{String(fund.fund_name || '基金').slice(0, 1)}</span>
+                              <div>
+                                <strong>{formatValue(fund.fund_name)}</strong>
+                                <small>{formatValue(fund.fund_company)}</small>
+                              </div>
+                            </div>
+                          </td>
+                          <td>{formatValue(fund.fund_code)}</td>
+                          <td>{formatValue(fund.net_value)}</td>
+                          <td>
+                            <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                              {formatPercent(fund.day_growth)}
+                            </span>
+                          </td>
+                          <td className={getChangeClass(fund.month_growth)}>
+                            {formatPercent(fund.month_growth)}
+                          </td>
+                          <td className={getChangeClass(fund.year_growth)}>
+                            {formatPercent(fund.year_growth)}
+                          </td>
+                          <td>
+                            <span className={styles.typeBadge}>{formatValue(fund.fund_type)}</span>
+                          </td>
+                          <td>
+                            <button
+                              className={styles.detailButton}
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedFund(fund);
+                              }}
+                            >
+                              查看详情
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </article>
+          </section>
 
           <aside className={styles.sideColumn}>
+            <article className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>日涨跌幅靠前</h2>
+                  <p>基于 /api/funds 的 day_growth</p>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className={styles.loadingCards}>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : topDailyFunds.length === 0 ? (
+                <EmptyState title="暂无数据" message="接口未返回可计算的日涨跌幅。" />
+              ) : (
+                <div className={styles.topFundList}>
+                  {topDailyFunds.map((fund, index) => (
+                    <button
+                      key={fund.fund_code || fund.fund_name}
+                      className={styles.topFundItem}
+                      type="button"
+                      onClick={() => setSelectedFund(fund)}
+                    >
+                      <span className={styles.rankBadge}>{index + 1}</span>
+                      <span>
+                        <strong>{formatValue(fund.fund_name)}</strong>
+                        <small>{formatValue(fund.fund_code)}</small>
+                      </span>
+                      <em className={getChangeClass(fund.day_growth)}>
+                        {formatPercent(fund.day_growth)}
+                      </em>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </article>
+
             <article className={styles.panel}>
               <div className={styles.panelHeader}>
                 <div>
@@ -453,10 +517,16 @@ export default function Home() {
 
             <article className={styles.placeholderPanel}>
               <div>
-                <span>Portfolio chart</span>
+                <span>Asset Allocation</span>
                 <strong>需要接入持仓数据</strong>
-                <p>投资组合收益曲线和资产配置图需要用户持仓、份额和历史市值。</p>
+                <p>需要接入持仓金额、基金分类和用户份额后展示资产配置。</p>
               </div>
+            </article>
+
+            <article className={styles.sourcePanel}>
+              <span>Data source</span>
+              <strong>GET /api/funds</strong>
+              <p>本页行情、统计、详情和榜单均来自当前基金列表接口；持仓类数据源未接入。</p>
             </article>
           </aside>
         </section>
