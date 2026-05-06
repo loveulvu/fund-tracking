@@ -30,7 +30,7 @@ function normalizeFundsPayload(payload) {
 }
 
 export const api = {
-  getFunds: async (options = {}) => normalizeFundsPayload(await fetchJson('/api/funds', options)),
+  getFunds: async (options = {}) => normalizeFundsPayload(await fetchJson('http://127.0.0.1:8081/api/funds', options)),
   getFund: (fundCode) => fetch(apiUrl(`/api/fund/${fundCode}`)),
   searchFunds: (query) => fetch(apiUrl(`/api/search_proxy?query=${encodeURIComponent(query)}`)),
   updateFunds: () => fetch(apiUrl('/api/update')),
