@@ -541,6 +541,29 @@
   background: #eff6ff;
 }
 
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detailLink {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detailLink:hover {
+  background: #1d4ed8;
+}
+
 .tonePositive {
   background: #dcfce7;
   color: #15803d;
@@ -896,6 +919,136 @@
   margin-top: 7px;
 }
 
+.fundPageShell {
+  min-height: 100vh;
+  background: #f4f7fb;
+  color: #0f172a;
+  padding: 26px;
+}
+
+.fundPage {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.fundPageTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.fundPageTopbar span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.backLink {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2563eb;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+}
+
+.fundPageState {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #64748b;
+  padding: 42px 22px;
+  text-align: center;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+}
+
+.fundHero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 24px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+}
+
+.fundHero h1 {
+  font-size: 32px;
+  line-height: 1.2;
+  margin: 6px 0 10px;
+}
+
+.fundHero p {
+  color: #64748b;
+}
+
+.fundHeroMetric {
+  min-width: 220px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 16px;
+}
+
+.fundHeroMetric span,
+.fundMetricGrid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.fundHeroMetric strong {
+  display: block;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+.fundHeroMetric p {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.fundMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.fundMetricGrid article {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 18px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+}
+
+.fundMetricGrid strong {
+  display: block;
+  font-size: 24px;
+  margin-top: 8px;
+}
+
+.fundDetailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.fundAside {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
 .positive {
   color: #15803d;
 }
@@ -970,6 +1123,33 @@
   }
 
   .fundCard dl {
+    grid-template-columns: 1fr;
+  }
+
+  .rowActions {
+    flex-wrap: wrap;
+  }
+
+  .fundPageShell {
+    padding: 16px;
+  }
+
+  .fundPageTopbar,
+  .fundHero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fundHero h1 {
+    font-size: 26px;
+  }
+
+  .fundHeroMetric {
+    min-width: 0;
+  }
+
+  .fundMetricGrid,
+  .fundDetailGrid {
     grid-template-columns: 1fr;
   }
 

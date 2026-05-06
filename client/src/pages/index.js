@@ -156,15 +156,7 @@ export default function Home() {
         setLoading(true);
         setError('');
 
-        const response = await api.getFunds();
-        if (!response.ok) {
-          throw new Error(`接口返回 ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (!Array.isArray(data)) {
-          throw new Error('接口返回格式不是基金数组');
-        }
+        const data = await api.getFunds();
 
         if (active) {
           setFunds(data);
@@ -374,7 +366,7 @@ export default function Home() {
                         <th>近1月</th>
                         <th>近1年</th>
                         <th>类型</th>
-                        <th>详情</th>
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -410,6 +402,7 @@ export default function Home() {
                             <span className={styles.typeBadge}>{formatValue(fund.fund_type)}</span>
                           </td>
                           <td>
+                            <div className={styles.rowActions}>
                             <button
                               className={styles.detailButton}
                               type="button"
@@ -418,8 +411,21 @@ export default function Home() {
                                 setSelectedFund(fund);
                               }}
                             >
-                              查看详情
+                              快速查看
                             </button>
+                              <Link
+                                className={styles.detailLink}
+                                href={fund.fund_code ? `/fund/${fund.fund_code}` : '#'}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (!fund.fund_code) {
+                                    event.preventDefault();
+                                  }
+                                }}
+                              >
+                                详情页
+                              </Link>
+                            </div>
                           </td>
                         </tr>
                       ))}

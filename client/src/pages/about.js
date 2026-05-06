@@ -127,11 +127,7 @@ export default function About() {
     const fetchFundsData = async () => {
       try {
         setLoading(true);
-        const response = await api.getFunds();
-        if (!response.ok) {
-          throw new Error(`Failed to fetch funds data: ${response.status}`);
-        }
-        const data = await response.json();
+        const data = await api.getFunds();
 
         // 确保数据是数组
         if (Array.isArray(data)) {
