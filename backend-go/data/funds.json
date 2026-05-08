@@ -1,0 +1,42 @@
+[
+  {
+    "fund_code": "008540",
+    "fund_name": "示例基金Acc",
+    "net_value": 1.2345,
+    "day_growth": 0.56,
+    "week_growth": 1.23,
+    "month_growth": 3.45,
+    "three_month_growth": 5.67,
+    "six_month_growth": 8.91,
+    "year_growth": 12.34,
+    "three_year_growth": 35.67,
+    "fund_type": "混合型",
+    "fund_company": "示例基金公司",
+    "fund_manager": "张三",
+    "fund_scale": "120.5亿",
+    "net_value_date": "2026-05-06",
+    "update_time": "2026-05-07 12:00:00",
+    "is_seed": true,
+    "is_watched": false
+  },
+  {
+    "fund_code": "000001",
+    "fund_name": "示例基金B999",
+    "net_value": 2.3456,
+    "day_growth": -0.32,
+    "week_growth": 0.88,
+    "month_growth": 2.11,
+    "three_month_growth": 4.56,
+    "six_month_growth": 6.78,
+    "year_growth": 9.87,
+    "three_year_growth": 28.9,
+    "fund_type": "股票型",
+    "fund_company": "测试基金公司",
+    "fund_manager": "李四",
+    "fund_scale": "88.2亿",
+    "net_value_date": "2026-05-06",
+    "update_time": "2026-05-07 12:00:00",
+    "is_seed": false,
+    "is_watched": true
+  }
+]
