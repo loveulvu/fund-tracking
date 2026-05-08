@@ -9,29 +9,34 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Fund struct {
-	FundCode         string  `json:"fund_code"`
-	FundName         string  `json:"fund_name"`
-	NetValue         float64 `json:"net_value"`
-	DayGrowth        float64 `json:"day_growth"`
-	WeekGrowth       float64 `json:"week_growth"`
-	MonthGrowth      float64 `json:"month_growth"`
-	ThreeMonthGrowth float64 `json:"three_month_growth"`
-	SixMonthGrowth   float64 `json:"six_month_growth"`
-	YearGrowth       float64 `json:"year_growth"`
-	ThreeYearGrowth  float64 `json:"three_year_growth"`
-	FundType         string  `json:"fund_type"`
-	FundCompany      string  `json:"fund_company"`
-	FundManager      string  `json:"fund_manager"`
-	FundScale        string  `json:"fund_scale"`
-	NetValueDate     string  `json:"net_value_date"`
-	UpdateTime       string  `json:"update_time"`
-	IsSeed           bool    `json:"is_seed"`
-	IsWatched        bool    `json:"is_watched"`
+	FundCode string `json:"fund_code" bson:"fund_code"`
+	FundName string `json:"fund_name" bson:"fund_name"`
+
+	NetValue         float64 `json:"net_value" bson:"net_value"`
+	DayGrowth        float64 `json:"day_growth" bson:"day_growth"`
+	WeekGrowth       float64 `json:"week_growth" bson:"week_growth"`
+	MonthGrowth      float64 `json:"month_growth" bson:"month_growth"`
+	ThreeMonthGrowth float64 `json:"three_month_growth" bson:"three_month_growth"`
+	SixMonthGrowth   float64 `json:"six_month_growth" bson:"six_month_growth"`
+	YearGrowth       float64 `json:"year_growth" bson:"year_growth"`
+	ThreeYearGrowth  float64 `json:"three_year_growth" bson:"three_year_growth"`
+
+	FundType     string `json:"fund_type" bson:"fund_type"`
+	FundCompany  string `json:"fund_company" bson:"fund_company"`
+	FundManager  string `json:"fund_manager" bson:"fund_manager"`
+	FundScale    string `json:"fund_scale" bson:"fund_scale"`
+	NetValueDate string `json:"net_value_date" bson:"net_value_date"`
+
+	UpdateTime any `json:"update_time" bson:"update_time"`
+
+	IsSeed    bool `json:"is_seed" bson:"is_seed"`
+	IsWatched bool `json:"is_watched" bson:"is_watched"`
 }
 
 func enableCORS(w http.ResponseWriter) {
@@ -46,6 +51,34 @@ func loadFundsFromFile() ([]Fund, error) {
 	}
 	var funds []Fund
 	if err := json.Unmarshal(data, &funds); err != nil {
+		return nil, err
+	}
+	return funds, nil
+}
+func loadFundsFromMongoDB() ([]Fund, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		uri = "mongodb://127.0.0.1:27017"
+	}
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+	defer client.Disconnect(ctx)
+	collection := client.Database("fund_tracking").Collection("fund_data")
+	filter := bson.M{}
+	findOptions := options.Find().SetProjection(bson.M{
+		"_id": 0,
+	})
+	cursor, err := collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var funds []Fund
+	if err := cursor.All(ctx, &funds); err != nil {
 		return nil, err
 	}
 	return funds, nil
@@ -72,7 +105,7 @@ func fundsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	funds, err := loadFundsFromFile()
+	funds, err := loadFundsFromMongoDB()
 	if err != nil {
 		http.Error(w, "Failed to load funds", http.StatusInternalServerError)
 		return
