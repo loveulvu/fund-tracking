@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -83,6 +84,34 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 	}
 	return funds, nil
 }
+func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		uri = "mongodb://127.0.0.1:27017"
+	}
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return Fund{}, false, err
+	}
+	defer client.Disconnect(ctx)
+	collection := client.Database("fund_tracking").Collection("fund_data")
+	filter := bson.M{"fund_code": code}
+	findOptions := options.FindOne().SetProjection(bson.M{
+		"_id": 0,
+	})
+	var fund Fund
+	err = collection.FindOne(ctx, filter, findOptions).Decode(&fund)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return Fund{}, false, nil
+		}
+		return Fund{}, false, err
+	}
+	return fund, true, nil
+
+}
 func findFundByCode(code string) (Fund, bool, error) {
 	funds, err := loadFundsFromFile()
 	if err != nil {
@@ -131,7 +160,7 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Fund code is required", http.StatusBadRequest)
 		return
 	}
-	fund, ok, err := findFundByCode(code)
+	fund, ok, err := findFundByCodeInMongoDB(code)
 	if err != nil {
 		http.Error(w, "Failed to find fund", http.StatusInternalServerError)
 		return
