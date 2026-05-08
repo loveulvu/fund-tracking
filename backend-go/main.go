@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Fund struct {
@@ -109,9 +114,42 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
+func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		uri = "mongodb://127.0.0.1:27017"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		http.Error(w, "Failed to connect MongoDB: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer client.Disconnect(ctx)
+	if err := client.Ping(ctx, nil); err != nil {
+		http.Error(w, "Failed to ping MongoDB:"+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"message": "MongoDB connected",
+	})
+}
 func main() {
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
+	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
 	log.Println("Server is running on http://127.0.0.1:8081")
 	err := http.ListenAndServe("127.0.0.1:8081", nil)
 	if err != nil {
