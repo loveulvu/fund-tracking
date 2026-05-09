@@ -72,15 +72,42 @@ cd client && npm install
 - Copy root `.env.example` to `.env` and set values.
 - Copy `client/.env.example` to `client/.env.local`.
 
-3. Start backend (choose one)
+3. Start Go backend for fund read APIs
+
+```bash
+cd backend-go
+go run main.go
+```
+
+Go backend runs at:
+
+```text
+http://127.0.0.1:8081
+```
+
+Implemented Go endpoints:
+
+```text
+GET /api/health/mongo
+GET /api/funds
+GET /api/fund/<fund_code>
+GET /api/search_proxy?query=...
+```
+
+4. Start legacy Flask backend if you need auth/watchlist/update APIs
+
 ```bash
 python app.py
 ```
+
+Alternatively:
+
 ```bash
 python backend/run.py
 ```
 
-4. Start frontend
+5. Start frontend
+
 ```bash
 cd client
 npm run dev
