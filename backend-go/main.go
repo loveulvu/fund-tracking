@@ -45,17 +45,7 @@ func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
-func loadFundsFromFile() ([]Fund, error) {
-	data, err := os.ReadFile("data/funds.json")
-	if err != nil {
-		return nil, err
-	}
-	var funds []Fund
-	if err := json.Unmarshal(data, &funds); err != nil {
-		return nil, err
-	}
-	return funds, nil
-}
+
 func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
 	uri := os.Getenv("MONGO_URI")
 	if uri == "" {
@@ -115,18 +105,7 @@ func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 	}
 	return fund, true, nil
 }
-func findFundByCode(code string) (Fund, bool, error) {
-	funds, err := loadFundsFromFile()
-	if err != nil {
-		return Fund{}, false, err
-	}
-	for _, fund := range funds {
-		if fund.FundCode == code {
-			return fund, true, nil
-		}
-	}
-	return Fund{}, false, nil
-}
+
 func searchFundsInMongoDB(query string) ([]Fund, error) {
 	filter := bson.M{
 		"$or": []bson.M{
