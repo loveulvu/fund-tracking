@@ -56,19 +56,26 @@ func loadFundsFromFile() ([]Fund, error) {
 	}
 	return funds, nil
 }
-func loadFundsFromMongoDB() ([]Fund, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
 	uri := os.Getenv("MONGO_URI")
 	if uri == "" {
 		uri = "mongodb://127.0.0.1:27017"
 	}
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
+		return nil, nil, err
+	}
+	collection := client.Database("fund_tracking").Collection("fund_data")
+	return client, collection, nil
+}
+func loadFundsFromMongoDB() ([]Fund, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, collection, err := getFundCollection(ctx)
+	if err != nil {
 		return nil, err
 	}
 	defer client.Disconnect(ctx)
-	collection := client.Database("fund_tracking").Collection("fund_data")
 	filter := bson.M{}
 	findOptions := options.Find().SetProjection(bson.M{
 		"_id": 0,
@@ -78,7 +85,7 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
-	var funds []Fund
+	funds := make([]Fund, 0)
 	if err := cursor.All(ctx, &funds); err != nil {
 		return nil, err
 	}
@@ -87,16 +94,11 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	uri := os.Getenv("MONGO_URI")
-	if uri == "" {
-		uri = "mongodb://127.0.0.1:27017"
-	}
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	client, collection, err := getFundCollection(ctx)
 	if err != nil {
 		return Fund{}, false, err
 	}
 	defer client.Disconnect(ctx)
-	collection := client.Database("fund_tracking").Collection("fund_data")
 	filter := bson.M{"fund_code": code}
 	findOptions := options.FindOne().SetProjection(bson.M{
 		"_id": 0,
@@ -110,7 +112,6 @@ func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 		return Fund{}, false, err
 	}
 	return fund, true, nil
-
 }
 func findFundByCode(code string) (Fund, bool, error) {
 	funds, err := loadFundsFromFile()
@@ -186,13 +187,9 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	uri := os.Getenv("MONGO_URI")
-	if uri == "" {
-		uri = "mongodb://127.0.0.1:27017"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	client, _, err := getFundCollection(ctx)
 	if err != nil {
 		http.Error(w, "Failed to connect MongoDB: "+err.Error(), http.StatusInternalServerError)
 		return
