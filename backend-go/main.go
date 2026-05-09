@@ -68,7 +68,7 @@ func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, e
 	collection := client.Database("fund_tracking").Collection("fund_data")
 	return client, collection, nil
 }
-func loadFundsFromMongoDB() ([]Fund, error) {
+func findFundsByFilter(filter bson.M) ([]Fund, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client, collection, err := getFundCollection(ctx)
@@ -76,7 +76,6 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 		return nil, err
 	}
 	defer client.Disconnect(ctx)
-	filter := bson.M{}
 	findOptions := options.Find().SetProjection(bson.M{
 		"_id": 0,
 	})
@@ -90,6 +89,9 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 		return nil, err
 	}
 	return funds, nil
+}
+func loadFundsFromMongoDB() ([]Fund, error) {
+	return findFundsByFilter(bson.M{})
 }
 func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -126,32 +128,13 @@ func findFundByCode(code string) (Fund, bool, error) {
 	return Fund{}, false, nil
 }
 func searchFundsInMongoDB(query string) ([]Fund, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, collection, err := getFundCollection(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Disconnect(ctx)
 	filter := bson.M{
 		"$or": []bson.M{
 			{"fund_code": bson.M{"$regex": query, "$options": "i"}},
 			{"fund_name": bson.M{"$regex": query, "$options": "i"}},
 		},
 	}
-	findOptions := options.Find().SetProjection(bson.M{
-		"_id": 0,
-	})
-	cursor, err := collection.Find(ctx, filter, findOptions)
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	funds := make([]Fund, 0)
-	if err := cursor.All(ctx, &funds); err != nil {
-		return nil, err
-	}
-	return funds, nil
+	return findFundsByFilter(filter)
 }
 func searchHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
