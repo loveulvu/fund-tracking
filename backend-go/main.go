@@ -125,6 +125,60 @@ func findFundByCode(code string) (Fund, bool, error) {
 	}
 	return Fund{}, false, nil
 }
+func searchFundsInMongoDB(query string) ([]Fund, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, collection, err := getFundCollection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Disconnect(ctx)
+	filter := bson.M{
+		"$or": []bson.M{
+			{"fund_code": bson.M{"$regex": query, "$options": "i"}},
+			{"fund_name": bson.M{"$regex": query, "$options": "i"}},
+		},
+	}
+	findOptions := options.Find().SetProjection(bson.M{
+		"_id": 0,
+	})
+	cursor, err := collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	funds := make([]Fund, 0)
+	if err := cursor.All(ctx, &funds); err != nil {
+		return nil, err
+	}
+	return funds, nil
+}
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	if query == "" {
+		http.Error(w, "Search query is required", http.StatusBadRequest)
+		return
+	}
+	funds, err := searchFundsInMongoDB(query)
+	if err != nil {
+		http.Error(w, "Failed to search funds", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	if err := json.NewEncoder(w).Encode(funds); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
 func fundsHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
 	if r.Method == http.MethodOptions {
@@ -209,6 +263,7 @@ func main() {
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
+	http.HandleFunc("/api/search_proxy", searchHandler)
 	log.Println("Server is running on http://127.0.0.1:8081")
 	err := http.ListenAndServe("127.0.0.1:8081", nil)
 	if err != nil {
