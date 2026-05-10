@@ -375,7 +375,7 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "MongoDB client not initialized", http.StatusInternalServerError)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := mongoClient.Ping(ctx, nil); err != nil {
 		http.Error(w, "Failed to ping MongoDB: "+err.Error(), http.StatusInternalServerError)
@@ -394,6 +394,7 @@ func main() {
 	}
 	defer mongoClient.Disconnect(context.Background())
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
+	http.HandleFunc("/api/auth/register", registerHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)
 	http.HandleFunc("/api/funds/search", searchHandler)
 	http.HandleFunc("/api/funds", fundsHandler)
