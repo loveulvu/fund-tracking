@@ -15,6 +15,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var mongoClient *mongo.Client
+var fundCollection *mongo.Collection
+
 type Fund struct {
 	FundCode string `json:"fund_code" bson:"fund_code"`
 	FundName string `json:"fund_name" bson:"fund_name"`
@@ -45,27 +48,44 @@ func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
-
-func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
+func initMongo() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	uri := os.Getenv("MONGO_URI")
 	if uri == "" {
 		uri = "mongodb://127.0.0.1:27017"
 	}
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	collection := client.Database("fund_tracking").Collection("fund_data")
-	return client, collection, nil
+	if err := client.Ping(ctx, nil); err != nil {
+		return err
+	}
+	mongoClient = client
+	fundCollection = client.Database("fund_tracking").Collection("fund_data")
+	return nil
 }
+func getFundCollection() *mongo.Collection {
+	return fundCollection
+}
+
+//	func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
+//		uri := os.Getenv("MONGO_URI")
+//		if uri == "" {
+//			uri = "mongodb://127.0.0.1:27017"
+//		}
+//		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+//		if err != nil {
+//			return nil, nil, err
+//		}
+//		collection := client.Database("fund_tracking").Collection("fund_data")
+//		return client, collection, nil
+//	}
 func findFundsByFilter(filter bson.M) ([]Fund, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client, collection, err := getFundCollection(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getFundCollection()
 	findOptions := options.Find().SetProjection(bson.M{
 		"_id": 0,
 	})
@@ -86,17 +106,13 @@ func loadFundsFromMongoDB() ([]Fund, error) {
 func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client, collection, err := getFundCollection(ctx)
-	if err != nil {
-		return Fund{}, false, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getFundCollection()
 	filter := bson.M{"fund_code": code}
 	findOptions := options.FindOne().SetProjection(bson.M{
 		"_id": 0,
 	})
 	var fund Fund
-	err = collection.FindOne(ctx, filter, findOptions).Decode(&fund)
+	err := collection.FindOne(ctx, filter, findOptions).Decode(&fund)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return Fund{}, false, nil
@@ -203,18 +219,17 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if mongoClient == nil {
+		http.Error(w, "MongoDB client not initialized", http.StatusInternalServerError)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, _, err := getFundCollection(ctx)
-	if err != nil {
-		http.Error(w, "Failed to connect MongoDB: "+err.Error(), http.StatusInternalServerError)
+	if err := mongoClient.Ping(ctx, nil); err != nil {
+		http.Error(w, "Failed to ping MongoDB: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer client.Disconnect(ctx)
-	if err := client.Ping(ctx, nil); err != nil {
-		http.Error(w, "Failed to ping MongoDB:"+err.Error(), http.StatusInternalServerError)
-		return
-	}
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
@@ -222,6 +237,10 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 func main() {
+	if err := initMongo(); err != nil {
+		log.Fatal(err)
+	}
+	defer mongoClient.Disconnect(context.Background())
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
 	http.HandleFunc("/api/funds/search", searchHandler)
 	http.HandleFunc("/api/funds", fundsHandler)
