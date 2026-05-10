@@ -53,7 +53,7 @@ export const api = {
   searchFunds: (query) =>
     fetch(goApiUrl(`/api/search_proxy?query=${encodeURIComponent(query)}`)),
 
-  updateFunds: () => fetch(apiUrl('/api/update')),
+  updateFunds: () => fetch(goApiUrl('/api/update')),
 
   getWatchlist: (token) => fetch(apiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
