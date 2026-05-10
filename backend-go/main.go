@@ -222,11 +222,11 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 func main() {
+	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
+	http.HandleFunc("/api/funds/search", searchHandler)
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
-	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
 	http.HandleFunc("/api/search_proxy", searchHandler)
-	http.HandleFunc("/api/funds/search", searchHandler)
 	log.Println("Server is running on http://127.0.0.1:8081")
 	err := http.ListenAndServe("127.0.0.1:8081", nil)
 	if err != nil {
