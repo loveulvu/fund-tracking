@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +20,19 @@ import (
 
 var mongoClient *mongo.Client
 var fundCollection *mongo.Collection
+
+var defaultFundCodes = []string{
+	"008540",
+	"012414",
+	"001887",
+	"005303",
+	"588000",
+	"161128",
+	"510300",
+	"161725",
+	"001607",
+	"004243",
+}
 
 type Fund struct {
 	FundCode string `json:"fund_code" bson:"fund_code"`
@@ -42,7 +58,143 @@ type Fund struct {
 	IsSeed    bool `json:"is_seed" bson:"is_seed"`
 	IsWatched bool `json:"is_watched" bson:"is_watched"`
 }
+type fundGZResponse struct {
+	FundCode     string `json:"fundcode"`
+	FundName     string `json:"name"`
+	NetValue     string `json:"dwjz"`
+	DayGrowth    string `json:"gszzl"`
+	NetValueDate string `json:"jzrq"`
+	UpdateTime   string `json:"gztime"`
+}
+type updateFundsResponse struct {
+	Status  string   `json:"status"`
+	Updated int      `json:"updated"`
+	Failed  []string `json:"failed"`
+	Total   int      `json:"total"`
+}
 
+func parseFloatOrZero(value string) float64 {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+func fetchFundBasicInfo(fundCode string) (Fund, error) {
+	url := fmt.Sprintf("https://fundgz.1234567.com.cn/js/%s.js", fundCode)
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return Fund{}, err
+	}
+	req.Header.Set("User-agent", "Mozilla/5.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return Fund{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Fund{}, fmt.Errorf("fund API returnded status %d", resp.StatusCode)
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Fund{}, err
+	}
+	body := strings.TrimSpace(string(bodyBytes))
+	body = strings.TrimPrefix(body, "jsonpgz(")
+	body = strings.TrimSuffix(body, ");")
+	var data fundGZResponse
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		return Fund{}, err
+	}
+	return Fund{
+		FundCode:     data.FundCode,
+		FundName:     data.FundName,
+		NetValue:     parseFloatOrZero(data.NetValue),
+		DayGrowth:    parseFloatOrZero(data.DayGrowth),
+		NetValueDate: data.NetValueDate,
+		UpdateTime:   data.UpdateTime,
+		IsSeed:       true,
+	}, nil
+}
+func upsertFundBasicInfo(fund Fund) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	collection := getFundCollection()
+	filter := bson.M{
+		"fund_code": fund.FundCode,
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"fund_code":      fund.FundCode,
+			"fund_name":      fund.FundName,
+			"net_value":      fund.NetValue,
+			"day_growth":     fund.DayGrowth,
+			"net_value_date": fund.NetValueDate,
+			"update_time":    fund.UpdateTime,
+			"is_seed":        fund.IsSeed,
+		},
+	}
+	_, err := collection.UpdateOne(
+		ctx,
+		filter,
+		update,
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireUpdateAPIKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	updated := 0
+	failed := make([]string, 0)
+	for _, fundCode := range defaultFundCodes {
+		fund, err := fetchFundBasicInfo(fundCode)
+		if err != nil {
+			failed = append(failed, fundCode+":fetch failed:"+err.Error())
+			continue
+		}
+		if err := upsertFundBasicInfo(fund); err != nil {
+			failed = append(failed, fundCode+":upsert failed:"+err.Error())
+			continue
+		}
+		updated++
+		time.Sleep(300 * time.Millisecond)
+	}
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	if err := json.NewEncoder(w).Encode(updateFundsResponse{
+		Status:  "success",
+		Updated: updated,
+		Failed:  failed,
+		Total:   len(defaultFundCodes),
+	}); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+func requireUpdateAPIKey(r *http.Request) bool {
+	expectedKey := os.Getenv("UPDATE_API_KEY")
+	if expectedKey == "" {
+		return true
+	}
+	providedKey := r.Header.Get("X-Update-Key")
+	if providedKey == "" {
+		providedKey = r.URL.Query().Get("key")
+	}
+	return providedKey == expectedKey
+}
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
@@ -242,6 +394,7 @@ func main() {
 	}
 	defer mongoClient.Disconnect(context.Background())
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
+	http.HandleFunc("/api/update", updateFundsHandler)
 	http.HandleFunc("/api/funds/search", searchHandler)
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
