@@ -128,6 +128,11 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		claims, err := getClaimsFromRequest(r)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -160,7 +165,7 @@ func getClaimsFromRequest(r *http.Request) (*AuthClaims, error) {
 func generateJWT(user User) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		return "", http.ErrNoCookie
+		return "", fmt.Errorf("JWT_SECRET is not set")
 	}
 	claims := AuthClaims{
 		UserID: user.ID.Hex(),

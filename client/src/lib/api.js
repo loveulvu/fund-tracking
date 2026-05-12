@@ -55,7 +55,7 @@ export const api = {
 
   updateFunds: () => fetch(goApiUrl('/api/update')),
 
-  getWatchlist: (token) => fetch(apiUrl('/api/watchlist'), {
+  getWatchlist: (token) => fetch(goApiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
   }),
 
@@ -82,13 +82,13 @@ export const api = {
     body: JSON.stringify({ alertThreshold: threshold })
   }),
 
-  login: (email, password) => fetch(apiUrl('/api/auth/login'), {
+  login: (email, password) => fetch(goApiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
   }),
 
-  register: (email, password) => fetch(apiUrl('/api/auth/register'), {
+  register: (email, password) => fetch(goApiUrl('/api/auth/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
