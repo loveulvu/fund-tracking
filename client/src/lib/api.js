@@ -59,7 +59,7 @@ export const api = {
     headers: { 'Authorization': `Bearer ${token}` }
   }),
 
-  addToWatchlist: (token, data) => fetch(apiUrl('/api/watchlist'), {
+  addToWatchlist: (token, data) => fetch(goApiUrl('/api/watchlist'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

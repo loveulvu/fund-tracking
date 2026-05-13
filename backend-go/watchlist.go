@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -13,12 +15,19 @@ import (
 )
 
 type WatchlistItem struct {
-	UserID         string  `bson:"userId" json:"userId"`
-	FundCode       string  `bson:"fundCode" json:"fundCode"`
-	FundName       string  `bson:"fundName" json:"fundName"`
-	AlertThreshold float64 `bson:"alertThreshold" json:"alertThreshold"`
-	AddedAt        string  `bson:"addedAt" json:"addedAt"`
+	UserID         string    `bson:"userId" json:"userId"`
+	FundCode       string    `bson:"fundCode" json:"fundCode"`
+	FundName       string    `bson:"fundName" json:"fundName"`
+	AlertThreshold float64   `bson:"alertThreshold" json:"alertThreshold"`
+	AddedAt        time.Time `bson:"addedAt" json:"addedAt"`
 }
+type AddWatchlistRequest struct {
+	FundCode       string   `json:"fundCode"`
+	FundName       string   `json:"fundName"`
+	AlertThreshold *float64 `json:"alertThreshold"`
+}
+
+var errWatchlistExists = errors.New("watchlist item already exists")
 
 func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
@@ -26,15 +35,22 @@ func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+
 	claims, ok := getAuthClaims(r)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	switch r.Method {
+	case http.MethodGet:
+		getWatchlistHandler(w, r, claims)
+	case http.MethodPost:
+		addWatchlistHandler(w, r, claims)
+	default:
+		http.Error(w, "Meethod not allowed", http.StatusMethodNotAllowed)
+	}
+}
+func getWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
 	items, err := findWatchlistByUserID(claims.UserID)
 	if err != nil {
 		http.Error(w, "Failed to fetch watchlist", http.StatusInternalServerError)
@@ -42,6 +58,71 @@ func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(items)
+}
+func addWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
+	var req AddWatchlistRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.FundCode = strings.TrimSpace(req.FundCode)
+	req.FundName = strings.TrimSpace(req.FundName)
+	if req.FundCode == "" || req.FundName == "" {
+		http.Error(w, "fundCode and fundName are required", http.StatusBadRequest)
+		return
+	}
+	alertThreshold := 5.0
+	if req.AlertThreshold != nil {
+		alertThreshold = *req.AlertThreshold
+	}
+	item := WatchlistItem{
+		UserID:         claims.UserID,
+		FundCode:       req.FundCode,
+		FundName:       req.FundName,
+		AlertThreshold: alertThreshold,
+		AddedAt:        time.Now().UTC(),
+	}
+	createdItem, err := insertWatchlistItem(item)
+	if err != nil {
+		if errors.Is(err, errWatchlistExists) {
+			http.Error(w, "Fund already in watchlist", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Failed to add to watchlist: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(createdItem)
+}
+func insertWatchlistItem(item WatchlistItem) (WatchlistItem, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, collection, err := getWatchlistCollection(ctx)
+	if err != nil {
+		return WatchlistItem{}, err
+	}
+	defer client.Disconnect(ctx)
+	filter := bson.M{
+		"userId":   item.UserID,
+		"fundCode": item.FundCode,
+	}
+	err = collection.FindOne(ctx, filter).Err()
+	if err == nil {
+		return WatchlistItem{}, errWatchlistExists
+	}
+	if err != mongo.ErrNoDocuments {
+		return WatchlistItem{}, err
+	}
+	_, err = collection.InsertOne(ctx, item)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return WatchlistItem{}, errWatchlistExists
+		}
+		return WatchlistItem{}, err
+	}
+
+	return item, nil
 }
 func getWatchlistCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
 	uri := os.Getenv("MONGO_URI")
