@@ -68,7 +68,7 @@ export const api = {
     body: JSON.stringify(data)
   }),
 
-  removeFromWatchlist: (token, fundCode) => fetch(apiUrl(`/api/watchlist/${fundCode}`), {
+  removeFromWatchlist: (token, fundCode) => fetch(goApiUrl(`/api/watchlist/${fundCode}`), {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${token}` }
   }),

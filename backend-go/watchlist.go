@@ -46,8 +46,10 @@ func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 		getWatchlistHandler(w, r, claims)
 	case http.MethodPost:
 		addWatchlistHandler(w, r, claims)
+	case http.MethodDelete:
+		deleteWatchlistHandler(w, r, claims)
 	default:
-		http.Error(w, "Meethod not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 func getWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
@@ -168,4 +170,47 @@ func findWatchlistByUserID(userID string) ([]WatchlistItem, error) {
 	}
 	return items, nil
 
+}
+func deleteWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
+	fundCode := strings.TrimPrefix(r.URL.Path, "/api/watchlist/")
+	fundCode = strings.TrimSpace(strings.Trim(fundCode, "/"))
+	if fundCode == "" {
+		http.Error(w, "fundCode is required", http.StatusBadRequest)
+		return
+	}
+	deleted, err := deleteWatchlistItem(claims.UserID, fundCode)
+	if err != nil {
+		http.Error(w, "Failed to delete watchlist item", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Watchlist item not found",
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Successfully removed from watchlist",
+	})
+}
+func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, collection, err := getWatchlistCollection(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer client.Disconnect(ctx)
+	filter := bson.M{
+		"userId":   userID,
+		"fundCode": fundCode,
+	}
+	result, err := collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+	return result.DeletedCount > 0, nil
 }

@@ -399,6 +399,7 @@ func main() {
 	http.HandleFunc("/api/update", updateFundsHandler)
 	http.HandleFunc("/api/auth/me", authMiddleware(meHandler))
 	http.HandleFunc("/api/watchlist", authMiddleware(watchlistHandler))
+	http.HandleFunc("/api/watchlist/", authMiddleware(watchlistHandler))
 	http.HandleFunc("/api/funds/search", searchHandler)
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
