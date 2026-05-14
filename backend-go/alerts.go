@@ -22,9 +22,13 @@ type alertCheckResponse struct {
 	Triggered      int                  `json:"triggered"`
 	Skipped        int                  `json:"skipped"`
 	Failed         int                  `json:"failed"`
+	Logged         int                  `json:"logged"`
+	Duplicate      int                  `json:"duplicate"`
 	TriggeredItems []alertTriggeredItem `json:"triggered_items"`
 	SkippedItems   []alertSkippedItem   `json:"skipped_items"`
 	FailedItems    []alertFailedItem    `json:"failed_items"`
+	LoggedItems    []alertTriggeredItem `json:"logged_items"`
+	DuplicateItems []alertTriggeredItem `json:"duplicate_items"`
 	DurationMs     int64                `json:"duration_ms"`
 }
 
@@ -50,6 +54,19 @@ type alertFailedItem struct {
 	FundCode string `json:"fundCode,omitempty"`
 	FundName string `json:"fundName,omitempty"`
 	Reason   string `json:"reason"`
+}
+
+type alertLogDocument struct {
+	UserID         string    `bson:"userId"`
+	FundCode       string    `bson:"fundCode"`
+	FundName       string    `bson:"fundName"`
+	DayGrowth      float64   `bson:"dayGrowth"`
+	AlertThreshold float64   `bson:"alertThreshold"`
+	NetValueDate   string    `bson:"netValueDate"`
+	Reason         string    `bson:"reason"`
+	Status         string    `bson:"status"`
+	CreatedAt      time.Time `bson:"createdAt"`
+	Source         string    `bson:"source"`
 }
 
 func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +110,8 @@ func buildAlertCheckResponse(ctx context.Context, watchlistItems []bson.M, start
 	triggeredItems := make([]alertTriggeredItem, 0)
 	skippedItems := make([]alertSkippedItem, 0)
 	failedItems := make([]alertFailedItem, 0)
+	loggedItems := make([]alertTriggeredItem, 0)
+	duplicateItems := make([]alertTriggeredItem, 0)
 	checked := 0
 
 	for _, item := range watchlistItems {
@@ -166,7 +185,7 @@ func buildAlertCheckResponse(ctx context.Context, watchlistItems []bson.M, start
 			if fundName == "" {
 				fundName = strings.TrimSpace(stringifyAlertValue(fund["fund_name"]))
 			}
-			triggeredItems = append(triggeredItems, alertTriggeredItem{
+			triggeredItem := alertTriggeredItem{
 				UserID:         userID,
 				FundCode:       fundCode,
 				FundName:       fundName,
@@ -174,7 +193,24 @@ func buildAlertCheckResponse(ctx context.Context, watchlistItems []bson.M, start
 				AlertThreshold: alertThreshold,
 				NetValueDate:   stringifyAlertValue(fund["net_value_date"]),
 				Reason:         "abs(day_growth) >= abs(alertThreshold)",
-			})
+			}
+			triggeredItems = append(triggeredItems, triggeredItem)
+
+			logged, err := logAlertTrigger(ctx, triggeredItem)
+			if err != nil {
+				failedItems = append(failedItems, alertFailedItem{
+					UserID:   userID,
+					FundCode: fundCode,
+					FundName: fundName,
+					Reason:   "alert log failed: " + err.Error(),
+				})
+				continue
+			}
+			if logged {
+				loggedItems = append(loggedItems, triggeredItem)
+			} else {
+				duplicateItems = append(duplicateItems, triggeredItem)
+			}
 		}
 	}
 
@@ -184,11 +220,52 @@ func buildAlertCheckResponse(ctx context.Context, watchlistItems []bson.M, start
 		Triggered:      len(triggeredItems),
 		Skipped:        len(skippedItems),
 		Failed:         len(failedItems),
+		Logged:         len(loggedItems),
+		Duplicate:      len(duplicateItems),
 		TriggeredItems: triggeredItems,
 		SkippedItems:   skippedItems,
 		FailedItems:    failedItems,
+		LoggedItems:    loggedItems,
+		DuplicateItems: duplicateItems,
 		DurationMs:     time.Since(start).Milliseconds(),
 	}
+}
+
+func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error) {
+	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
+	filter := bson.M{
+		"userId":         item.UserID,
+		"fundCode":       item.FundCode,
+		"netValueDate":   item.NetValueDate,
+		"alertThreshold": item.AlertThreshold,
+		"status":         "triggered",
+	}
+
+	err := collection.FindOne(ctx, filter).Err()
+	if err == nil {
+		return false, nil
+	}
+	if err != mongo.ErrNoDocuments {
+		return false, err
+	}
+
+	document := alertLogDocument{
+		UserID:         item.UserID,
+		FundCode:       item.FundCode,
+		FundName:       item.FundName,
+		DayGrowth:      item.DayGrowth,
+		AlertThreshold: item.AlertThreshold,
+		NetValueDate:   item.NetValueDate,
+		Reason:         item.Reason,
+		Status:         "triggered",
+		CreatedAt:      time.Now().UTC(),
+		Source:         "alerts_check",
+	}
+
+	if _, err := collection.InsertOne(ctx, document); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func findWatchlistItemsForAlertCheck(ctx context.Context) ([]bson.M, error) {
