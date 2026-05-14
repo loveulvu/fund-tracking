@@ -1,14 +1,19 @@
 import Link from 'next/link';
+import { useState } from 'react';
 import styles from '../../styles/Dashboard.module.css';
 
-const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/' },
-  { label: 'Funds', href: '/about' },
-  { label: 'Watchlist', href: '/profile' },
-  { label: 'Login', href: '/login' },
-];
-
 export default function DashboardShell({ activeHref, children, noteTitle, noteText }) {
+  const [isLoggedIn] = useState(() => (
+    typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
+  ));
+
+  const navItems = [
+    { label: '总览', href: '/' },
+    { label: '基金列表', href: '/about' },
+    { label: '关注列表', href: '/profile' },
+    { label: isLoggedIn ? '账户' : '登录', href: isLoggedIn ? '/profile' : '/login' },
+  ];
+
   return (
     <main className={styles.shell}>
       <aside className={styles.sidebar}>
@@ -16,12 +21,12 @@ export default function DashboardShell({ activeHref, children, noteTitle, noteTe
           <span className={styles.brandMark}>FT</span>
           <div>
             <strong>FundTracking</strong>
-            <small>Fund dashboard</small>
+            <small>基金跟踪面板</small>
           </div>
         </div>
 
         <nav className={styles.nav} aria-label="Main navigation">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -34,9 +39,9 @@ export default function DashboardShell({ activeHref, children, noteTitle, noteTe
         </nav>
 
         <div className={styles.sidebarNote}>
-          <span>Workspace</span>
-          <strong>{noteTitle || 'Live fund data'}</strong>
-          <p>{noteText || 'Track funds, search data, and manage a personal watchlist.'}</p>
+          <span>工作区</span>
+          <strong>{noteTitle || '实时基金数据'}</strong>
+          <p>{noteText || '查看基金行情，搜索基金，并管理个人关注列表。'}</p>
         </div>
       </aside>
 

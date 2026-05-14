@@ -84,7 +84,7 @@ export default function About() {
 
   const handleWatch = async (fund) => {
     if (!user) {
-      alert('Please log in first.');
+      alert('请先登录。');
       return;
     }
 
@@ -103,11 +103,11 @@ export default function About() {
         await fetchWatchlist();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to follow fund.');
+        alert(data.error || '关注失败');
       }
     } catch (err) {
       console.error('Error adding to watchlist:', err);
-      alert('Failed to follow fund.');
+      alert('关注失败');
     } finally {
       setWatchlistLoading((previous) => ({ ...previous, [fundCode]: false }));
     }
@@ -126,11 +126,11 @@ export default function About() {
         await fetchWatchlist();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to remove fund.');
+        alert(data.error || '取消关注失败');
       }
     } catch (err) {
       console.error('Error removing from watchlist:', err);
-      alert('Failed to remove fund.');
+      alert('取消关注失败');
     } finally {
       setWatchlistLoading((previous) => ({ ...previous, [fundCode]: false }));
     }
@@ -157,11 +157,11 @@ export default function About() {
           }
         } else {
           console.error('Invalid data format:', data);
-          setError('Invalid data format received from server.');
+          setError('接口返回的数据格式不正确。');
         }
         setError(null);
       } catch (err) {
-        setError(`Error fetching funds data: ${err.message}`);
+        setError(`基金数据加载失败：${err.message}`);
         console.error(err);
       } finally {
         setLoading(false);
@@ -187,18 +187,18 @@ export default function About() {
         setLoading(true);
         const response = await api.getFund(keyword);
         if (!response.ok) {
-          throw new Error('Failed to fetch fund data');
+          throw new Error('基金数据请求失败');
         }
         const data = await response.json();
 
         if (!data || !data.fund_code) {
-          throw new Error('Invalid fund data received');
+          throw new Error('接口返回的基金数据无效');
         }
 
         setFilteredFunds([data]);
         setError(null);
       } catch (err) {
-        setError(`Error fetching fund data: ${err.message}`);
+        setError(`基金数据加载失败：${err.message}`);
         console.error(err);
       } finally {
         setLoading(false);
@@ -235,7 +235,7 @@ export default function About() {
           const fundCode = fund.fund_code || '';
           return fundName.toLowerCase().includes(term) || fundCode.includes(term);
         }));
-        setError('Search failed. Showing local matches.');
+        setError('搜索接口暂时不可用，已显示本地匹配结果。');
         console.error(err);
       } finally {
         setLoading(false);
@@ -252,17 +252,17 @@ export default function About() {
   return (
     <DashboardShell
       activeHref="/about"
-      noteTitle="Funds"
-      noteText="Search live fund data and add funds to your watchlist."
+      noteTitle="基金列表"
+      noteText="搜索基金行情，并把常看的基金加入关注列表。"
     >
       <header className={styles.pageHeader}>
         <div>
-          <p className={styles.eyebrow}>Funds</p>
-          <h1>Funds</h1>
-          <p>Search the live fund list and manage watched funds.</p>
+          <p className={styles.eyebrow}>基金</p>
+          <h1>基金列表</h1>
+          <p>搜索实时基金列表，并管理关注状态。</p>
         </div>
         <div className={styles.heroMeta}>
-          <span>Last updated</span>
+          <span>最近更新</span>
           <strong>{lastUpdatedText}</strong>
         </div>
       </header>
@@ -274,14 +274,14 @@ export default function About() {
             type="text"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search by fund name or 6-digit code"
+            placeholder="输入基金名称或 6 位基金代码"
           />
         </label>
         <button className={styles.primaryButton} type="submit">
-          Search
+          搜索
         </button>
         <button className={styles.secondaryButton} type="button" onClick={handleClearSearch}>
-          Clear
+          清空
         </button>
       </form>
 
@@ -290,10 +290,10 @@ export default function About() {
       <article className={styles.panel}>
         <div className={styles.panelHeader}>
           <div>
-            <h2>Fund list</h2>
-            <p>{loading ? 'Loading fund data' : `${filteredFunds.length} results`}</p>
+            <h2>基金列表</h2>
+            <p>{loading ? '正在加载基金数据' : `${filteredFunds.length} 条结果`}</p>
           </div>
-          <span className={styles.panelBadge}>Live API</span>
+          <span className={styles.panelBadge}>实时接口</span>
         </div>
 
         {loading ? (
@@ -306,20 +306,20 @@ export default function About() {
         ) : filteredFunds.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyMark} aria-hidden="true" />
-            <strong>No funds found</strong>
-            <p>Try a fund name or a 6-digit fund code.</p>
+            <strong>没有找到基金</strong>
+            <p>请尝试基金名称或 6 位基金代码。</p>
           </div>
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Fund</th>
-                  <th>Code</th>
-                  <th>Net value</th>
-                  <th>Daily change</th>
-                  <th>Date</th>
-                  <th>Watchlist</th>
+                  <th>基金</th>
+                  <th>代码</th>
+                  <th>净值</th>
+                  <th>日涨跌</th>
+                  <th>净值日期</th>
+                  <th>关注</th>
                 </tr>
               </thead>
               <tbody>
@@ -351,7 +351,7 @@ export default function About() {
                             onClick={() => handleUnwatch(fund.fund_code)}
                             disabled={watchlistLoading[fund.fund_code]}
                           >
-                            {watchlistLoading[fund.fund_code] ? 'Saving...' : 'Remove'}
+                            {watchlistLoading[fund.fund_code] ? '处理中...' : '取消关注'}
                           </button>
                         ) : (
                           <button
@@ -360,12 +360,12 @@ export default function About() {
                             onClick={() => handleWatch(fund)}
                             disabled={watchlistLoading[fund.fund_code]}
                           >
-                            {watchlistLoading[fund.fund_code] ? 'Saving...' : 'Follow'}
+                            {watchlistLoading[fund.fund_code] ? '处理中...' : '关注'}
                           </button>
                         )
                       ) : (
                         <Link className={styles.detailLink} href="/login">
-                          Login
+                          登录后关注
                         </Link>
                       )}
                     </td>
@@ -391,13 +391,13 @@ export default function About() {
             </div>
             <dl>
               <div>
-                <dt>Month</dt>
+                <dt>近 1 月</dt>
                 <dd className={getChangeClass(fund.month_growth)}>
                   {formatPercent(fund.month_growth)}
                 </dd>
               </div>
               <div>
-                <dt>Year</dt>
+                <dt>近 1 年</dt>
                 <dd className={getChangeClass(fund.year_growth)}>
                   {formatPercent(fund.year_growth)}
                 </dd>

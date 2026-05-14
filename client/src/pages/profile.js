@@ -6,7 +6,7 @@ import styles from '../../styles/Dashboard.module.css';
 
 function formatPercent(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return '-';
+  if (!Number.isFinite(number)) return '暂无行情数据';
   return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
 }
 
@@ -78,14 +78,31 @@ export default function Profile() {
           const data = await response.json();
           setWatchlist(data);
 
+          let mergedFundData = {};
+          try {
+            const funds = await api.getFunds();
+            if (Array.isArray(funds)) {
+              for (const fund of funds) {
+                if (fund?.fund_code) {
+                  mergedFundData[fund.fund_code] = fund;
+                }
+              }
+              setFundData(mergedFundData);
+            }
+          } catch (fundErr) {
+            console.error('Error fetching funds for watchlist merge:', fundErr);
+          }
+
           for (const item of data) {
-            fetchFundData(item.fundCode);
+            if (!mergedFundData[item.fundCode]) {
+              fetchFundData(item.fundCode);
+            }
           }
         } else {
           throw new Error('Failed to fetch watchlist');
         }
       } catch (err) {
-        setError('Unable to load watchlist.');
+        setError('无法加载关注列表。');
         console.error('Error fetching watchlist:', err);
       } finally {
         setLoading(false);
@@ -109,17 +126,17 @@ export default function Profile() {
         });
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to remove fund.');
+        alert(data.error || '取消关注失败。');
       }
     } catch (err) {
       console.error('Error removing from watchlist:', err);
-      alert('Failed to remove fund.');
+      alert('取消关注失败。');
     }
   };
 
   const handleUpdateThreshold = async (fundCode) => {
     if (!newThreshold || Number.isNaN(Number(newThreshold))) {
-      alert('Please enter a valid threshold.');
+      alert('请输入有效的提醒阈值。');
       return;
     }
 
@@ -136,11 +153,11 @@ export default function Profile() {
         setNewThreshold('');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to update threshold.');
+        alert(data.error || '阈值修改失败。');
       }
     } catch (err) {
       console.error('Error updating threshold:', err);
-      alert('Failed to update threshold.');
+      alert('阈值修改失败。');
     }
   };
 
@@ -153,17 +170,17 @@ export default function Profile() {
   return (
     <DashboardShell
       activeHref="/profile"
-      noteTitle="Watchlist"
-      noteText="Manage followed funds and alert thresholds from one place."
+      noteTitle="关注列表"
+      noteText="集中管理已关注基金和提醒阈值。"
     >
       <header className={styles.pageHeader}>
         <div>
-          <p className={styles.eyebrow}>Account</p>
-          <h1>Account / Watchlist</h1>
-          <p>Review your signed-in account and manage watched funds.</p>
+          <p className={styles.eyebrow}>账户</p>
+          <h1>账户 / 关注列表</h1>
+          <p>查看当前账户信息，并管理关注基金。</p>
         </div>
         <button className={styles.secondaryButton} type="button" onClick={handleLogout}>
-          Logout
+          退出登录
         </button>
       </header>
 
@@ -173,18 +190,18 @@ export default function Profile() {
         <article className={styles.panel}>
           <div className={styles.panelHeader}>
             <div>
-              <h2>User information</h2>
-              <p>Current browser session</p>
+              <h2>用户信息</h2>
+              <p>当前登录状态</p>
             </div>
           </div>
           <div className={styles.cardBody}>
             <dl className={styles.infoList}>
               <div>
-                <dt>Email</dt>
+                <dt>邮箱</dt>
                 <dd>{user?.email || 'N/A'}</dd>
               </div>
               <div>
-                <dt>Watchlist items</dt>
+                <dt>关注基金</dt>
                 <dd>{watchlist.length}</dd>
               </div>
             </dl>
@@ -192,20 +209,20 @@ export default function Profile() {
         </article>
 
         <article className={styles.sourcePanel}>
-          <span>Data source</span>
+          <span>数据来源</span>
           <strong>GET /api/watchlist</strong>
-          <p>Watchlist changes are scoped by the authenticated user and fund code.</p>
+          <p>关注列表按登录用户和基金代码定位，避免跨用户误操作。</p>
         </article>
       </section>
 
       <article className={styles.panel}>
         <div className={styles.panelHeader}>
           <div>
-            <h2>Watched funds</h2>
-            <p>{loading ? 'Loading watchlist' : `${watchlist.length} followed funds`}</p>
+            <h2>关注基金</h2>
+            <p>{loading ? '正在加载关注列表' : `${watchlist.length} 只基金`}</p>
           </div>
           <Link className={styles.detailLink} href="/about">
-            Add funds
+            添加基金
           </Link>
         </div>
 
@@ -218,110 +235,122 @@ export default function Profile() {
         ) : watchlist.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyMark} aria-hidden="true" />
-            <strong>No watched funds yet</strong>
-            <p>Open Funds to add items to your watchlist.</p>
+            <strong>还没有关注基金</strong>
+            <p>前往基金列表添加你想跟踪的基金。</p>
             <Link className={styles.detailLink} href="/about">
-              Go to Funds
+              去添加基金
             </Link>
           </div>
         ) : (
-          <div className={styles.watchlistGrid}>
-            {watchlist.map((item) => {
-              const fund = fundData[item.fundCode];
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>基金</th>
+                  <th>净值</th>
+                  <th>日涨跌</th>
+                  <th>近 1 月</th>
+                  <th>近 1 年</th>
+                  <th>提醒阈值</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {watchlist.map((item) => {
+                  const fund = fundData[item.fundCode];
+                  const hasMarketData = Boolean(fund?.fund_code);
 
-              return (
-                <article className={styles.watchCard} key={item.fundCode}>
-                  <div className={styles.watchCardHeader}>
-                    <div>
-                      <h3>{item.fundName || fund?.fund_name || 'Fund'}</h3>
-                      <p>{item.fundCode}</p>
-                    </div>
-                    <span className={[styles.changePill, getToneClass(fund?.day_growth)].join(' ')}>
-                      {formatPercent(fund?.day_growth)}
-                    </span>
-                  </div>
-
-                  <dl className={styles.metricGrid}>
-                    <div>
-                      <dt>Net value</dt>
-                      <dd>{fund?.net_value ?? '-'}</dd>
-                    </div>
-                    <div>
-                      <dt>Date</dt>
-                      <dd>{fund?.net_value_date || '-'}</dd>
-                    </div>
-                    <div>
-                      <dt>1 month</dt>
-                      <dd className={getChangeClass(fund?.month_growth)}>
-                        {formatPercent(fund?.month_growth)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>1 year</dt>
-                      <dd className={getChangeClass(fund?.year_growth)}>
-                        {formatPercent(fund?.year_growth)}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className={styles.thresholdBox}>
-                    <span>Alert threshold</span>
-                    {editingThreshold === item.fundCode ? (
-                      <div className={styles.thresholdEditor}>
-                        <input
-                          type="number"
-                          value={newThreshold}
-                          onChange={(event) => setNewThreshold(event.target.value)}
-                          placeholder="Threshold"
-                        />
+                  return (
+                    <tr key={item.fundCode}>
+                      <td>
+                        <div className={styles.fundIdentity}>
+                          <span>{String(item.fundName || fund?.fund_name || '基').slice(0, 1)}</span>
+                          <div>
+                            <strong>{item.fundName || fund?.fund_name || '基金'}</strong>
+                            <small>{item.fundCode}</small>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {hasMarketData ? (
+                          <>
+                            <strong>{fund.net_value ?? '暂无行情数据'}</strong>
+                            <small className={styles.mutedBlock}>{fund.net_value_date || '暂无日期'}</small>
+                          </>
+                        ) : (
+                          <span className={styles.mutedText}>暂无行情数据</span>
+                        )}
+                      </td>
+                      <td>
+                        {hasMarketData ? (
+                          <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                            {formatPercent(fund.day_growth)}
+                          </span>
+                        ) : (
+                          <span className={styles.mutedText}>暂无行情数据</span>
+                        )}
+                      </td>
+                      <td className={hasMarketData ? getChangeClass(fund.month_growth) : styles.neutral}>
+                        {hasMarketData ? formatPercent(fund.month_growth) : '暂无行情数据'}
+                      </td>
+                      <td className={hasMarketData ? getChangeClass(fund.year_growth) : styles.neutral}>
+                        {hasMarketData ? formatPercent(fund.year_growth) : '暂无行情数据'}
+                      </td>
+                      <td>
+                        {editingThreshold === item.fundCode ? (
+                          <div className={styles.thresholdEditorInline}>
+                            <input
+                              type="number"
+                              value={newThreshold}
+                              onChange={(event) => setNewThreshold(event.target.value)}
+                              placeholder="阈值"
+                            />
+                            <button
+                              className={styles.primaryButtonSmall}
+                              type="button"
+                              onClick={() => handleUpdateThreshold(item.fundCode)}
+                            >
+                              保存
+                            </button>
+                            <button
+                              className={styles.secondaryButtonSmall}
+                              type="button"
+                              onClick={() => {
+                                setEditingThreshold(null);
+                                setNewThreshold('');
+                              }}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className={styles.thresholdButton}
+                            type="button"
+                            onClick={() => {
+                              setEditingThreshold(item.fundCode);
+                              setNewThreshold(String(item.alertThreshold));
+                            }}
+                          >
+                            {item.alertThreshold}% 修改
+                          </button>
+                        )}
+                        <small className={styles.mutedBlock}>添加于 {formatDate(item.addedAt)}</small>
+                      </td>
+                      <td>
                         <button
-                          className={styles.primaryButtonSmall}
+                          className={styles.dangerButton}
                           type="button"
-                          onClick={() => handleUpdateThreshold(item.fundCode)}
+                          onClick={() => handleUnwatch(item.fundCode)}
                         >
-                          Save
+                          取消关注
                         </button>
-                        <button
-                          className={styles.secondaryButtonSmall}
-                          type="button"
-                          onClick={() => {
-                            setEditingThreshold(null);
-                            setNewThreshold('');
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className={styles.thresholdDisplay}>
-                        <strong>{item.alertThreshold}%</strong>
-                        <button
-                          className={styles.detailButton}
-                          type="button"
-                          onClick={() => {
-                            setEditingThreshold(item.fundCode);
-                            setNewThreshold(String(item.alertThreshold));
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className={styles.cardActions}>
-                    <span>Added {formatDate(item.addedAt)}</span>
-                    <button
-                      className={styles.dangerButton}
-                      type="button"
-                      onClick={() => handleUnwatch(item.fundCode)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </article>

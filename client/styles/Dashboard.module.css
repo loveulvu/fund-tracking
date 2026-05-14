@@ -919,6 +919,15 @@
   align-items: start;
 }
 
+.authCentered {
+  min-height: calc(100vh - 190px);
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 12px;
+  padding-top: 22px;
+}
+
 .authSwitch {
   border-top: 1px solid #edf2f7;
   color: #64748b;
@@ -929,6 +938,14 @@
 .authSwitch a {
   color: #2563eb;
   font-weight: 800;
+}
+
+.authHint {
+  max-width: 520px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .authAside {
@@ -1069,6 +1086,37 @@
   margin-top: 8px;
 }
 
+.thresholdEditorInline {
+  display: grid;
+  grid-template-columns: 86px auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.thresholdEditorInline input {
+  width: 86px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0 10px;
+}
+
+.thresholdButton {
+  min-height: 32px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #2563eb;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.thresholdButton:hover {
+  background: #eff6ff;
+}
+
 .thresholdDisplay {
   align-items: center;
   margin-top: 8px;
@@ -1088,6 +1136,17 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 16px;
+}
+
+.mutedText,
+.mutedBlock {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.mutedBlock {
+  display: block;
+  margin-top: 4px;
 }
 
 .detailLayer {
@@ -1508,8 +1567,13 @@
   .detailSummary,
   .detailList,
   .metricGrid,
-  .thresholdEditor {
+  .thresholdEditor,
+  .thresholdEditorInline {
     grid-template-columns: 1fr;
+  }
+
+  .thresholdEditorInline input {
+    width: 100%;
   }
 
   .detailList div,

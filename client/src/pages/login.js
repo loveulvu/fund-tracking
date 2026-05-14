@@ -36,10 +36,10 @@ export function AuthPage({ initialMode = 'login' }) {
           window.location.href = '/profile';
         }
       } else {
-        setMessage(result.error || 'Request failed');
+        setMessage(result.error || '请求失败');
       }
     } catch (error) {
-      setMessage('Network error. Please try again later.');
+      setMessage('网络错误，请稍后重试。');
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -49,27 +49,27 @@ export function AuthPage({ initialMode = 'login' }) {
   return (
     <DashboardShell
       activeHref="/login"
-      noteTitle="Account access"
-      noteText="Sign in to manage your watchlist and alert thresholds."
+      noteTitle="账户入口"
+      noteText="登录后可以管理关注基金和提醒阈值。"
     >
       <header className={styles.pageHeader}>
         <div>
-          <p className={styles.eyebrow}>Account</p>
-          <h1>{isRegister ? 'Create Account' : 'Login'}</h1>
+          <p className={styles.eyebrow}>账户</p>
+          <h1>{isRegister ? '注册账户' : '登录'}</h1>
           <p>
             {isRegister
-              ? 'Create an account, then log in directly with the same credentials.'
-              : 'Sign in to view your watchlist and manage alert thresholds.'}
+              ? '创建账户后，可以直接使用同一邮箱和密码登录。'
+              : '登录后查看关注列表，并管理基金提醒阈值。'}
           </p>
         </div>
       </header>
 
-      <section className={styles.authLayout}>
+      <section className={styles.authCentered}>
         <article className={styles.formCard}>
           <div className={styles.panelHeader}>
             <div>
-              <h2>{isRegister ? 'Register' : 'Welcome back'}</h2>
-              <p>{isRegister ? 'Email and password are required.' : 'Use your account email and password.'}</p>
+              <h2>{isRegister ? '注册' : '欢迎回来'}</h2>
+              <p>{isRegister ? '请输入邮箱和密码完成注册。' : '使用邮箱和密码登录账户。'}</p>
             </div>
           </div>
 
@@ -77,7 +77,7 @@ export function AuthPage({ initialMode = 'login' }) {
             {message && <div className={styles.messageBox}>{message}</div>}
 
             <label className={styles.field}>
-              <span>Email</span>
+              <span>邮箱</span>
               <input
                 type="email"
                 value={email}
@@ -87,7 +87,7 @@ export function AuthPage({ initialMode = 'login' }) {
             </label>
 
             <label className={styles.field}>
-              <span>Password</span>
+              <span>密码</span>
               <input
                 type="password"
                 value={password}
@@ -97,36 +97,30 @@ export function AuthPage({ initialMode = 'login' }) {
             </label>
 
             <button className={styles.primaryButton} type="submit" disabled={loading}>
-              {loading ? 'Submitting...' : isRegister ? 'Create account' : 'Login'}
+              {loading ? '提交中...' : isRegister ? '注册' : '登录'}
             </button>
           </form>
 
           <div className={styles.authSwitch}>
             {isRegister ? (
               <span>
-                Already have an account?{' '}
+                已有账户？{' '}
                 <Link href="/login" onClick={() => setMode('login')}>
-                  Login
+                  去登录
                 </Link>
               </span>
             ) : (
               <span>
-                No account yet?{' '}
+                还没有账户？{' '}
                 <Link href="/register" onClick={() => setMode('register')}>
-                  Register
+                  去注册
                 </Link>
               </span>
             )}
           </div>
         </article>
 
-        <aside className={styles.authAside}>
-          <span>Protected features</span>
-          <strong>Watchlist uses JWT authentication.</strong>
-          <p>
-            Login is required before adding funds, removing funds, or updating alert thresholds.
-          </p>
-        </aside>
+        <p className={styles.authHint}>关注、取消关注和阈值修改需要登录，接口使用 JWT 认证。</p>
       </section>
     </DashboardShell>
   );

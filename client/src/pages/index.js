@@ -4,10 +4,10 @@ import api from '../lib/api';
 import styles from '../../styles/Dashboard.module.css';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/', active: true },
-  { label: 'Funds', href: '/about' },
-  { label: 'Watchlist', href: '/profile' },
-  { label: 'Login', href: '/login' },
+  { label: '总览', href: '/', active: true },
+  { label: '基金列表', href: '/about' },
+  { label: '关注列表', href: '/profile' },
+  { label: '登录', href: '/login' },
 ];
 
 const DETAIL_FIELDS = [
@@ -147,6 +147,9 @@ export default function Home() {
   const [selectedFund, setSelectedFund] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isLoggedIn] = useState(() => (
+    typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
+  ));
 
   useEffect(() => {
     let active = true;
@@ -234,21 +237,27 @@ export default function Home() {
           <span className={styles.brandMark}>FT</span>
           <div>
             <strong>FundTracking</strong>
-            <small>Fund dashboard</small>
+            <small>基金跟踪面板</small>
           </div>
         </div>
 
         <nav className={styles.nav} aria-label="Main navigation">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.map((item) => {
+            const navItem = item.href === '/login' && isLoggedIn
+              ? { ...item, label: '账户', href: '/profile' }
+              : item;
+
+            return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={navItem.href}
+              href={navItem.href}
               className={item.active ? styles.navActive : ''}
             >
               <span className={styles.navDot} aria-hidden="true" />
-              {item.label}
+              {navItem.label}
             </Link>
-          ))}
+            );
+          })}
         </nav>
 
         <div className={styles.sidebarNote}>
