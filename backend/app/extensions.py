@@ -25,7 +25,7 @@ def init_mongo(app):
 
     if not mongo_uri:
         db_error_message = (
-            "CRITICAL: MONGO_URI is missing. Please set it in Railway Variables."
+            "CRITICAL: MONGO_URI is missing. Please set it in backend environment variables."
         )
         print(db_error_message)
         return

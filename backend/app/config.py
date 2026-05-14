@@ -10,7 +10,7 @@ class Config:
     ]
 
     MONGO_URI = os.environ.get("MONGO_URI")
-    JWT_SECRET = os.environ.get("JWT_SECRET", "fund_tracking_secret_key_2026")
+    JWT_SECRET = os.environ.get("JWT_SECRET")
     EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
     EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
     UPDATE_API_KEY = os.environ.get("UPDATE_API_KEY")

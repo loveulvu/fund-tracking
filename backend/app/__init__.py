@@ -64,10 +64,10 @@ def create_app():
         supports_credentials=True,
     )
 
-    if "JWT_SECRET" not in os.environ:
-        print(
-            "[security] WARNING: JWT_SECRET is using fallback value. "
-            "Please set JWT_SECRET in Railway."
+    if not app.config.get("JWT_SECRET"):
+        raise RuntimeError(
+            "JWT_SECRET is required for the legacy Flask backend. "
+            "Set it in backend environment variables before starting Flask."
         )
 
     init_mongo(app)
