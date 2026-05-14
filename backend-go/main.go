@@ -460,8 +460,16 @@ func main() {
 	http.HandleFunc("/api/funds", fundsHandler)
 	http.HandleFunc("/api/fund/", fundDetailHandler)
 	http.HandleFunc("/api/search_proxy", searchHandler)
-	log.Println("Server is running on http://127.0.0.1:8081")
-	err := http.ListenAndServe("127.0.0.1:8081", nil)
+	port := os.Getenv("PORT")
+	host := "127.0.0.1"
+	if port == "" {
+		port = "8081"
+	} else {
+		host = "0.0.0.0"
+	}
+	addr := host + ":" + port
+	log.Println("Server is running on http://" + addr)
+	err := http.ListenAndServe(addr, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
