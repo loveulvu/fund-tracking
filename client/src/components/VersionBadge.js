@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiUrl } from '../lib/api';
+import {goApiUrl } from '../lib/api';
 import styles from './VersionBadge.module.css';
 
 const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
@@ -13,7 +13,7 @@ export default function VersionBadge() {
 
     const fetchVersion = async () => {
       try {
-        const res = await fetch(apiUrl('/api/version'));
+        const res = await fetch(goApiUrl('/api/version'));
         if (!res.ok) {
           throw new Error(`status ${res.status}`);
         }

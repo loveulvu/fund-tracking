@@ -221,6 +221,13 @@ func initMongo() error {
 func getFundCollection() *mongo.Collection {
 	return fundCollection
 }
+func getenvDefault(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
 
 //	func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
 //		uri := os.Getenv("MONGO_URI")
@@ -361,6 +368,42 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
+func versionHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	commit := os.Getenv("GIT_COMMIT")
+	if commit == "" {
+		commit = os.Getenv("RAILWAY_GIT_COMMIT_SHA")
+	}
+	if commit == "" {
+		commit = os.Getenv("SOURCE_VERSION")
+	}
+
+	shortCommit := commit
+	if len(shortCommit) > 7 {
+		shortCommit = shortCommit[:7]
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]any{
+		"service":     "fund-tracking-go-api",
+		"version":     getenvDefault("APP_VERSION", "dev"),
+		"commit":      shortCommit,
+		"commit_full": commit,
+		"built_at":    os.Getenv("APP_BUILT_AT"),
+		"server_time": time.Now().Unix(),
+	})
+}
 func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
 	if r.Method == http.MethodOptions {
@@ -394,6 +437,7 @@ func main() {
 	}
 	defer mongoClient.Disconnect(context.Background())
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
+	http.HandleFunc("/api/version", versionHandler)
 	http.HandleFunc("/api/auth/register", registerHandler)
 	http.HandleFunc("/api/auth/login", loginHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)

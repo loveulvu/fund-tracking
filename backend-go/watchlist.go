@@ -26,6 +26,9 @@ type AddWatchlistRequest struct {
 	FundName       string   `json:"fundName"`
 	AlertThreshold *float64 `json:"alertThreshold"`
 }
+type UpdateWatchlistThresholdRequest struct {
+	AlertThreshold *float64 `json:"alertThreshold"`
+}
 
 var errWatchlistExists = errors.New("watchlist item already exists")
 
@@ -48,6 +51,8 @@ func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 		addWatchlistHandler(w, r, claims)
 	case http.MethodDelete:
 		deleteWatchlistHandler(w, r, claims)
+	case http.MethodPut:
+		updateWatchlistThresholdHandler(w, r, claims)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -213,4 +218,74 @@ func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
 		return false, err
 	}
 	return result.DeletedCount > 0, nil
+}
+func updateWatchlistThresholdHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
+	fundCode := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/watchlist/"), "/")
+	if fundCode == "" {
+		http.Error(w, "fundCode is required", http.StatusBadRequest)
+		return
+	}
+	var req UpdateWatchlistThresholdRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.AlertThreshold == nil {
+		http.Error(w, "alertThreshold is required", http.StatusBadRequest)
+		return
+	}
+	updatedItem, found, err := updateWatchlistThreshold(claims.UserID, fundCode, *req.AlertThreshold)
+	if err != nil {
+		http.Error(w, "Failed to update watchlist threshold: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "Watchlist item not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(updatedItem)
+
+}
+func updateWatchlistThreshold(userID string, fundCode string, alertThreshold float64) (WatchlistItem, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, collection, err := getWatchlistCollection(ctx)
+	if err != nil {
+		return WatchlistItem{}, false, err
+	}
+	defer client.Disconnect(ctx)
+
+	filter := bson.M{
+		"userId":   userID,
+		"fundCode": fundCode,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"alertThreshold": alertThreshold,
+		},
+	}
+
+	result, err := collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return WatchlistItem{}, false, err
+	}
+
+	if result.MatchedCount == 0 {
+		return WatchlistItem{}, false, nil
+	}
+
+	findOptions := options.FindOne().SetProjection(bson.M{
+		"_id": 0,
+	})
+
+	var updatedItem WatchlistItem
+	if err := collection.FindOne(ctx, filter, findOptions).Decode(&updatedItem); err != nil {
+		return WatchlistItem{}, false, err
+	}
+
+	return updatedItem, true, nil
 }

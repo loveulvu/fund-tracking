@@ -73,7 +73,7 @@ export const api = {
     headers: { 'Authorization': `Bearer ${token}` }
   }),
 
-  updateWatchlistThreshold: (token, fundCode, threshold) => fetch(apiUrl(`/api/watchlist/${fundCode}`), {
+  updateWatchlistThreshold: (token, fundCode, threshold) => fetch(goApiUrl(`/api/watchlist/${fundCode}`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -100,7 +100,7 @@ export const api = {
     body: JSON.stringify({ email, code, password })
   }),
 
-  resendVerification: (email) => fetch(apiUrl('/api/auth/resend'), {
+  resendVerification: (email) => fetch(goApiUrl('/api/auth/resend'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email })
