@@ -172,9 +172,17 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 		updated++
 		time.Sleep(300 * time.Millisecond)
 	}
+	status := "success"
+	if len(failed) > 0 && updated > 0 {
+		status = "partial_success"
+	}
+	if updated == 0 && len(failed) > 0 {
+		status = "failed"
+	}
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(updateFundsResponse{
-		Status:  "success",
+		Status:  status,
 		Updated: updated,
 		Failed:  failed,
 		Total:   len(defaultFundCodes),
