@@ -67,10 +67,11 @@ type fundGZResponse struct {
 	UpdateTime   string `json:"gztime"`
 }
 type updateFundsResponse struct {
-	Status  string   `json:"status"`
-	Updated int      `json:"updated"`
-	Failed  []string `json:"failed"`
-	Total   int      `json:"total"`
+	Status     string   `json:"status"`
+	Updated    int      `json:"updated"`
+	Failed     []string `json:"failed"`
+	Total      int      `json:"total"`
+	DurationMs int64    `json:"duration_ms"`
 }
 
 func parseFloatOrZero(value string) float64 {
@@ -145,6 +146,7 @@ func upsertFundBasicInfo(fund Fund) error {
 }
 func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
+	start := time.Now()
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -181,11 +183,13 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+
 	if err := json.NewEncoder(w).Encode(updateFundsResponse{
-		Status:  status,
-		Updated: updated,
-		Failed:  failed,
-		Total:   len(defaultFundCodes),
+		Status:     status,
+		Updated:    updated,
+		Failed:     failed,
+		Total:      len(defaultFundCodes),
+		DurationMs: time.Since(start).Milliseconds(),
 	}); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
