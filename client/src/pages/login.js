@@ -1,22 +1,25 @@
 import { useState } from 'react';
-import styles from '../../styles/Login.module.css';
-import PillNav from '../components/PillNav';
+import Link from 'next/link';
+import DashboardShell from '../components/DashboardShell';
 import api from '../lib/api';
+import styles from '../../styles/Dashboard.module.css';
 
-export default function Login() {
-  const [isRegister, setIsRegister] = useState(false);
+export function AuthPage({ initialMode = 'login' }) {
+  const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const isRegister = mode === 'register';
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setLoading(true);
     setMessage('');
 
     try {
-      const response = isRegister 
+      const response = isRegister
         ? await api.register(email, password)
         : await api.login(email, password);
 
@@ -24,8 +27,8 @@ export default function Login() {
 
       if (response.ok) {
         if (isRegister) {
-          setMessage('Registration successful. Please log in.');
-          setIsRegister(false);
+          setMessage('Registration successful. You can log in now.');
+          setMode('login');
           setPassword('');
         } else {
           localStorage.setItem('token', result.token);
@@ -33,10 +36,10 @@ export default function Login() {
           window.location.href = '/profile';
         }
       } else {
-        setMessage(result.error || '操作失败');
+        setMessage(result.error || 'Request failed');
       }
     } catch (error) {
-      setMessage('网络错误，请稍后重试');
+      setMessage('Network error. Please try again later.');
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -44,102 +47,91 @@ export default function Login() {
   };
 
   return (
-    <div className={styles.container}>
-      <PillNav 
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Funds', href: '/about' }
-        ]} 
-        activeHref="/"
-        baseColor="#000000"
-        pillColor="#ffffff"
-        hoveredPillTextColor="#ffffff"
-        pillTextColor="#000000"
-        theme="light"
-      />
-      <div className={styles.formContainer}>
-        <h1 className={styles.title}>{isRegister ? '注册' : '登录'}</h1>
-        
-        {message && (
-          <div className={styles.message}>{message}</div>
-        )}
-
-        {isRegister ? (
-          <form onSubmit={handleSubmit} className={styles.form}>
-            <div className={styles.inputGroup}>
-              <label>邮箱</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className={styles.inputGroup}>
-              <label>密码</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <button type="submit" className={styles.button} disabled={loading}>
-              {loading ? '注册中...' : '注册'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleSubmit} className={styles.form}>
-            <div className={styles.inputGroup}>
-              <label>邮箱</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className={styles.inputGroup}>
-              <label>密码</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <button type="submit" className={styles.button} disabled={loading}>
-              {loading ? '登录中...' : '登录'}
-            </button>
-          </form>
-        )}
-
-        <div className={styles.switch}>
-          {isRegister ? (
-            <>
-              已有账号？{' '}
-              <button
-                type="button"
-                onClick={() => setIsRegister(false)}
-                className={styles.switchButton}
-              >
-                去登录
-              </button>
-            </>
-          ) : (
-            <>
-              没有账号？{' '}
-              <button
-                type="button"
-                onClick={() => setIsRegister(true)}
-                className={styles.switchButton}
-              >
-                去注册
-              </button>
-            </>
-          )}
+    <DashboardShell
+      activeHref="/login"
+      noteTitle="Account access"
+      noteText="Sign in to manage your watchlist and alert thresholds."
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.eyebrow}>Account</p>
+          <h1>{isRegister ? 'Create Account' : 'Login'}</h1>
+          <p>
+            {isRegister
+              ? 'Create an account, then log in directly with the same credentials.'
+              : 'Sign in to view your watchlist and manage alert thresholds.'}
+          </p>
         </div>
-      </div>
-    </div>
+      </header>
+
+      <section className={styles.authLayout}>
+        <article className={styles.formCard}>
+          <div className={styles.panelHeader}>
+            <div>
+              <h2>{isRegister ? 'Register' : 'Welcome back'}</h2>
+              <p>{isRegister ? 'Email and password are required.' : 'Use your account email and password.'}</p>
+            </div>
+          </div>
+
+          <form className={styles.formStack} onSubmit={handleSubmit}>
+            {message && <div className={styles.messageBox}>{message}</div>}
+
+            <label className={styles.field}>
+              <span>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </label>
+
+            <label className={styles.field}>
+              <span>Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </label>
+
+            <button className={styles.primaryButton} type="submit" disabled={loading}>
+              {loading ? 'Submitting...' : isRegister ? 'Create account' : 'Login'}
+            </button>
+          </form>
+
+          <div className={styles.authSwitch}>
+            {isRegister ? (
+              <span>
+                Already have an account?{' '}
+                <Link href="/login" onClick={() => setMode('login')}>
+                  Login
+                </Link>
+              </span>
+            ) : (
+              <span>
+                No account yet?{' '}
+                <Link href="/register" onClick={() => setMode('register')}>
+                  Register
+                </Link>
+              </span>
+            )}
+          </div>
+        </article>
+
+        <aside className={styles.authAside}>
+          <span>Protected features</span>
+          <strong>Watchlist uses JWT authentication.</strong>
+          <p>
+            Login is required before adding funds, removing funds, or updating alert thresholds.
+          </p>
+        </aside>
+      </section>
+    </DashboardShell>
   );
+}
+
+export default function Login() {
+  return <AuthPage initialMode="login" />;
 }

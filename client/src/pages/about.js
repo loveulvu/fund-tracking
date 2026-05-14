@@ -1,15 +1,41 @@
-import Particles from '../components/Particles';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import PillNav from '../components/PillNav';
-import { useState, useEffect, useCallback } from 'react';
-import styles from '../../styles/Home.module.css';
+import DashboardShell from '../components/DashboardShell';
 import api from '../lib/api';
+import styles from '../../styles/Dashboard.module.css';
 
-function formatLastUpdated(ts) {
-  if (!ts) return 'Unknown';
-  const value = Number(ts);
-  if (!Number.isFinite(value) || value <= 0) return 'Unknown';
-  return new Date(value * 1000).toLocaleString();
+function formatLastUpdated(value) {
+  if (!value) return 'Unknown';
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return new Date(numeric * 1000).toLocaleString();
+  }
+
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleString();
+  }
+
+  return String(value);
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
+}
+
+function getChangeClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return styles.neutral;
+  return number > 0 ? styles.positive : styles.negative;
+}
+
+function getToneClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
+  return number > 0 ? styles.tonePositive : styles.toneNegative;
 }
 
 export default function About() {
@@ -23,13 +49,6 @@ export default function About() {
   const [watchlistLoading, setWatchlistLoading] = useState({});
   const [lastUpdatedText, setLastUpdatedText] = useState('Unknown');
 
-  // 导航项 - 只显示Home和Account
-  const navItems = [
-    { label: 'Home', href: '/' },
-    { label: user ? 'Account' : 'Login', href: user ? '/profile' : '/login' },
-  ];
-
-  // 检查用户登录状态
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
@@ -37,14 +56,13 @@ export default function About() {
     }
   }, []);
 
-  // 获取关注列表
   const fetchWatchlist = useCallback(async () => {
     if (!user) return;
-    
+
     try {
       const token = localStorage.getItem('token');
       const response = await api.getWatchlist(token);
-      
+
       if (response.ok) {
         const data = await response.json();
         setWatchlist(data);
@@ -54,55 +72,51 @@ export default function About() {
     }
   }, [user]);
 
-  // 用户登录后获取关注列表
   useEffect(() => {
     if (user) {
       fetchWatchlist();
     }
   }, [user, fetchWatchlist]);
 
-  // 检查基金是否已关注
   const isWatched = (fundCode) => {
-    return watchlist.some(item => item.fundCode === fundCode);
+    return watchlist.some((item) => item.fundCode === fundCode);
   };
 
-  // 关注基金
   const handleWatch = async (fund) => {
     if (!user) {
-      alert('请先登录');
+      alert('Please log in first.');
       return;
     }
 
     const fundCode = fund.fund_code;
-    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+    setWatchlistLoading((previous) => ({ ...previous, [fundCode]: true }));
 
     try {
       const token = localStorage.getItem('token');
       const response = await api.addToWatchlist(token, {
-        fundCode: fundCode,
+        fundCode,
         fundName: fund.fund_name,
-        alertThreshold: 5
+        alertThreshold: 5,
       });
 
       if (response.ok) {
         await fetchWatchlist();
       } else {
         const data = await response.json();
-        alert(data.error || '关注失败');
+        alert(data.error || 'Failed to follow fund.');
       }
     } catch (err) {
       console.error('Error adding to watchlist:', err);
-      alert('关注失败');
+      alert('Failed to follow fund.');
     } finally {
-      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+      setWatchlistLoading((previous) => ({ ...previous, [fundCode]: false }));
     }
   };
 
-  // 取消关注
   const handleUnwatch = async (fundCode) => {
     if (!user) return;
 
-    setWatchlistLoading(prev => ({ ...prev, [fundCode]: true }));
+    setWatchlistLoading((previous) => ({ ...previous, [fundCode]: true }));
 
     try {
       const token = localStorage.getItem('token');
@@ -112,43 +126,42 @@ export default function About() {
         await fetchWatchlist();
       } else {
         const data = await response.json();
-        alert(data.error || '取消关注失败');
+        alert(data.error || 'Failed to remove fund.');
       }
     } catch (err) {
       console.error('Error removing from watchlist:', err);
-      alert('取消关注失败');
+      alert('Failed to remove fund.');
     } finally {
-      setWatchlistLoading(prev => ({ ...prev, [fundCode]: false }));
+      setWatchlistLoading((previous) => ({ ...previous, [fundCode]: false }));
     }
   };
 
-  // 获取所有基金数据
   useEffect(() => {
     const fetchFundsData = async () => {
       try {
         setLoading(true);
         const data = await api.getFunds();
 
-        // 确保数据是数组
         if (Array.isArray(data)) {
           setFundsData(data);
           setFilteredFunds(data);
           if (data.length > 0) {
-            const latest = data.reduce((maxTs, item) => {
-              const ts = Number(item?.update_time || 0);
-              return ts > maxTs ? ts : maxTs;
-            }, 0);
+            const latest = data.reduce((current, item) => {
+              const next = item?.update_time;
+              if (!current) return next;
+              return String(next || '') > String(current || '') ? next : current;
+            }, '');
             setLastUpdatedText(formatLastUpdated(latest));
           } else {
             setLastUpdatedText('Unknown');
           }
         } else {
           console.error('Invalid data format:', data);
-          setError('Invalid data format received from server');
+          setError('Invalid data format received from server.');
         }
         setError(null);
       } catch (err) {
-        setError('Error fetching funds data: ' + err.message);
+        setError(`Error fetching funds data: ${err.message}`);
         console.error(err);
       } finally {
         setLoading(false);
@@ -158,84 +171,71 @@ export default function About() {
     fetchFundsData();
   }, []);
 
-  // 搜索基金
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (searchTerm.trim() === '') {
+  const handleSearch = async (event) => {
+    event.preventDefault();
+    const keyword = searchTerm.trim();
+
+    if (keyword === '') {
       setFilteredFunds(fundsData);
       return;
     }
 
-    // 检查是否是基金代码（6位数字）
-    const isFundCode = /^\d{6}$/.test(searchTerm);
+    const isFundCode = /^\d{6}$/.test(keyword);
 
     if (isFundCode) {
-      // 如果是基金代码，尝试直接获取该基金数据
       try {
         setLoading(true);
-        const response = await api.getFund(searchTerm);
+        const response = await api.getFund(keyword);
         if (!response.ok) {
           throw new Error('Failed to fetch fund data');
         }
         const data = await response.json();
 
-        // 检查返回的数据是否有效
         if (!data || !data.fund_code) {
           throw new Error('Invalid fund data received');
         }
 
-        // 只显示搜索到的基金
         setFilteredFunds([data]);
         setError(null);
       } catch (err) {
-        setError('Error fetching fund data: ' + err.message);
+        setError(`Error fetching fund data: ${err.message}`);
         console.error(err);
       } finally {
         setLoading(false);
       }
     } else {
-      // 如果不是基金代码，尝试从服务器搜索
       try {
         setLoading(true);
-        const response = await api.searchFunds(searchTerm);
+        const response = await api.searchFunds(keyword);
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data) && data.length > 0) {
             setFilteredFunds(data);
           } else {
-            // 如果服务器返回空数组，在本地数据中搜索
-            const term = searchTerm.toLowerCase();
-            const filtered = fundsData.filter(fund => {
+            const term = keyword.toLowerCase();
+            setFilteredFunds(fundsData.filter((fund) => {
               const fundName = fund.fund_name || '';
               const fundCode = fund.fund_code || '';
-              return fundName.toLowerCase().includes(term) ||
-                     fundCode.includes(term);
-            });
-            setFilteredFunds(filtered);
+              return fundName.toLowerCase().includes(term) || fundCode.includes(term);
+            }));
           }
         } else {
-          // 如果服务器搜索失败，在本地数据中搜索
-          const term = searchTerm.toLowerCase();
-          const filtered = fundsData.filter(fund => {
+          const term = keyword.toLowerCase();
+          setFilteredFunds(fundsData.filter((fund) => {
             const fundName = fund.fund_name || '';
             const fundCode = fund.fund_code || '';
-            return fundName.toLowerCase().includes(term) ||
-                   fundCode.includes(term);
-          });
-          setFilteredFunds(filtered);
+            return fundName.toLowerCase().includes(term) || fundCode.includes(term);
+          }));
         }
         setError(null);
       } catch (err) {
-        // 搜索失败，在本地数据中搜索
-        const term = searchTerm.toLowerCase();
-        const filtered = fundsData.filter(fund => {
+        const term = keyword.toLowerCase();
+        setFilteredFunds(fundsData.filter((fund) => {
           const fundName = fund.fund_name || '';
           const fundCode = fund.fund_code || '';
-          return fundName.toLowerCase().includes(term) ||
-                 fundCode.includes(term);
-        });
-        setFilteredFunds(filtered);
-        setError('搜索失败，显示本地数据');
+          return fundName.toLowerCase().includes(term) || fundCode.includes(term);
+        }));
+        setError('Search failed. Showing local matches.');
         console.error(err);
       } finally {
         setLoading(false);
@@ -243,225 +243,169 @@ export default function About() {
     }
   };
 
-  // 清空搜索
   const handleClearSearch = () => {
     setSearchTerm('');
     setFilteredFunds(fundsData);
+    setError(null);
   };
 
   return (
-    <div className={styles.container}>
-      {/* 粒子背景层 */}
-      <div style={{
-        width: '100%',
-        height: '100%',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        zIndex: 0
-      }}>
-        <Particles
-          particleColors={['#ffffff']}
-          particleCount={200}
-          particleSpread={10}
-          speed={0.1}
-          particleBaseSize={100}
-          moveParticlesOnHover={true}
-          alphaParticles={false}
-          disableRotation={false}
-          pixelRatio={1}
-        />
-      </div>
+    <DashboardShell
+      activeHref="/about"
+      noteTitle="Funds"
+      noteText="Search live fund data and add funds to your watchlist."
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.eyebrow}>Funds</p>
+          <h1>Funds</h1>
+          <p>Search the live fund list and manage watched funds.</p>
+        </div>
+        <div className={styles.heroMeta}>
+          <span>Last updated</span>
+          <strong>{lastUpdatedText}</strong>
+        </div>
+      </header>
 
-      {/* 导航栏 */}
-      <PillNav
-        items={navItems}
-        activeHref="/"
-        baseColor="#000000"
-        pillColor="#ffffff"
-        hoveredPillTextColor="#ffffff"
-        pillTextColor="#000000"
-      />
-
-      {/* 内容层，必须在粒子层上面 */}
-      <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 20px', paddingTop: '100px' }}>
-        <h1 className={styles.title}>Fund Data</h1>
-        <p style={{ color: '#ffffff', opacity: 0.85 }}>Last updated: {lastUpdatedText}</p>
-        <p>
-          <Link href="/" className={styles.link}>
-            Back to Home
-          </Link>
-        </p>
-
-        {/* 搜索表单 */}
-        <form onSubmit={handleSearch} style={{
-          margin: '40px 0',
-          display: 'flex',
-          gap: '1rem',
-          justifyContent: 'center',
-          flexWrap: 'wrap'
-        }}>
+      <form className={styles.searchPanel} onSubmit={handleSearch}>
+        <label className={styles.search}>
+          <span aria-hidden="true" />
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="输入基金名称或代码"
-            style={{
-              padding: '0.75rem',
-              borderRadius: '4px',
-              border: '1px solid #ddd',
-              width: '300px',
-              backgroundColor: 'rgba(255, 255, 255, 0.9)'
-            }}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search by fund name or 6-digit code"
           />
-          <button
-            type="submit"
-            style={{
-              padding: '0.75rem 1.5rem',
-              borderRadius: '4px',
-              border: 'none',
-              backgroundColor: '#0070f3',
-              color: 'white',
-              cursor: 'pointer'
-            }}
-          >
-            搜索
-          </button>
-          <button
-            type="button"
-            onClick={handleClearSearch}
-            style={{
-              padding: '0.75rem 1.5rem',
-              borderRadius: '4px',
-              border: 'none',
-              backgroundColor: '#666',
-              color: 'white',
-              cursor: 'pointer'
-            }}
-          >
-            清空
-          </button>
-        </form>
+        </label>
+        <button className={styles.primaryButton} type="submit">
+          Search
+        </button>
+        <button className={styles.secondaryButton} type="button" onClick={handleClearSearch}>
+          Clear
+        </button>
+      </form>
 
-        {/* 基金数据显示区域 */}
-        <div style={{ marginTop: '20px', color: '#ffffff', maxWidth: '1200px', margin: '20px auto 0' }}>
-          {loading && <p>Loading fund data...</p>}
-          {error && <p>{error}</p>}
-          {!loading && !error && (
-            <div>
-              <h2 style={{ marginBottom: '20px' }}>基金列表 ({filteredFunds.length} 个结果)</h2>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-                gap: '20px',
-                justifyContent: 'center'
-              }}>
+      {error && <div className={styles.messageBox}>{error}</div>}
+
+      <article className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <div>
+            <h2>Fund list</h2>
+            <p>{loading ? 'Loading fund data' : `${filteredFunds.length} results`}</p>
+          </div>
+          <span className={styles.panelBadge}>Live API</span>
+        </div>
+
+        {loading ? (
+          <div className={styles.loadingList}>
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        ) : filteredFunds.length === 0 ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyMark} aria-hidden="true" />
+            <strong>No funds found</strong>
+            <p>Try a fund name or a 6-digit fund code.</p>
+          </div>
+        ) : (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Fund</th>
+                  <th>Code</th>
+                  <th>Net value</th>
+                  <th>Daily change</th>
+                  <th>Date</th>
+                  <th>Watchlist</th>
+                </tr>
+              </thead>
+              <tbody>
                 {filteredFunds.map((fund) => (
-                  <div key={fund.fund_code} style={{
-                    textAlign: 'left',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    padding: '20px',
-                    borderRadius: '8px'
-                  }}>
-                    <h3 style={{ marginBottom: '15px', textAlign: 'center' }}>{fund.fund_name}</h3>
-                    <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>基金代码: {fund.fund_code}</p>
-                    {fund.net_value && (
-                      <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>
-                        单位净值: {fund.net_value} {fund.net_value_date && `(${fund.net_value_date})`}
-                      </p>
-                    )}
-                    {fund.day_growth !== undefined && (
-                      <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8 }}>
-                        日涨跌幅: <span style={{ color: fund.day_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.day_growth >= 0 ? '+' : ''}{fund.day_growth}%
-                        </span>
-                      </p>
-                    )}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '15px' }}>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.month_growth !== undefined ? `${fund.month_growth >= 0 ? '+' : ''}${fund.month_growth}%` : '-'}
-                        </span>
+                  <tr key={fund.fund_code}>
+                    <td>
+                      <div className={styles.fundIdentity}>
+                        <span>{String(fund.fund_name || 'F').slice(0, 1)}</span>
+                        <div>
+                          <strong>{fund.fund_name || 'Fund'}</strong>
+                          <small>{fund.fund_company || fund.fund_type || 'Fund data'}</small>
+                        </div>
                       </div>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近3月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.three_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.three_month_growth !== undefined ? `${fund.three_month_growth >= 0 ? '+' : ''}${fund.three_month_growth}%` : '-'}
-                        </span>
-                      </div>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近6月收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.six_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.six_month_growth !== undefined ? `${fund.six_month_growth >= 0 ? '+' : ''}${fund.six_month_growth}%` : '-'}
-                        </span>
-                      </div>
-                      <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                        <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1年收益</span>
-                        <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                          {fund.year_growth !== undefined ? `${fund.year_growth >= 0 ? '+' : ''}${fund.year_growth}%` : '-'}
-                        </span>
-                      </div>
-                    </div>
-                    {/* 关注按钮 */}
-                    <div style={{ marginTop: '15px', textAlign: 'center' }}>
+                    </td>
+                    <td>{fund.fund_code}</td>
+                    <td>{fund.net_value ?? '-'}</td>
+                    <td>
+                      <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                        {formatPercent(fund.day_growth)}
+                      </span>
+                    </td>
+                    <td>{fund.net_value_date || '-'}</td>
+                    <td>
                       {user ? (
                         isWatched(fund.fund_code) ? (
                           <button
+                            className={styles.dangerButton}
+                            type="button"
                             onClick={() => handleUnwatch(fund.fund_code)}
                             disabled={watchlistLoading[fund.fund_code]}
-                            style={{
-                              padding: '8px 20px',
-                              borderRadius: '4px',
-                              border: 'none',
-                              backgroundColor: '#ff4444',
-                              color: 'white',
-                              cursor: watchlistLoading[fund.fund_code] ? 'not-allowed' : 'pointer',
-                              opacity: watchlistLoading[fund.fund_code] ? 0.6 : 1
-                            }}
                           >
-                            {watchlistLoading[fund.fund_code] ? '处理中...' : '取消关注'}
+                            {watchlistLoading[fund.fund_code] ? 'Saving...' : 'Remove'}
                           </button>
                         ) : (
                           <button
+                            className={styles.detailButton}
+                            type="button"
                             onClick={() => handleWatch(fund)}
                             disabled={watchlistLoading[fund.fund_code]}
-                            style={{
-                              padding: '8px 20px',
-                              borderRadius: '4px',
-                              border: 'none',
-                              backgroundColor: '#4CAF50',
-                              color: 'white',
-                              cursor: watchlistLoading[fund.fund_code] ? 'not-allowed' : 'pointer',
-                              opacity: watchlistLoading[fund.fund_code] ? 0.6 : 1
-                            }}
                           >
-                            {watchlistLoading[fund.fund_code] ? '处理中...' : '关注'}
+                            {watchlistLoading[fund.fund_code] ? 'Saving...' : 'Follow'}
                           </button>
                         )
                       ) : (
-                        <button
-                          onClick={() => alert('请先登录')}
-                          style={{
-                            padding: '8px 20px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            backgroundColor: '#666',
-                            color: 'white',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          登录后关注
-                        </button>
+                        <Link className={styles.detailLink} href="/login">
+                          Login
+                        </Link>
                       )}
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </article>
+
+      <section className={styles.fundCardsCompact}>
+        {filteredFunds.slice(0, 3).map((fund) => (
+          <article className={styles.fundCard} key={`card-${fund.fund_code}`}>
+            <div className={styles.fundCardTop}>
+              <div>
+                <h3>{fund.fund_name}</h3>
+                <p>{fund.fund_code}</p>
               </div>
+              <span className={[styles.changePill, getToneClass(fund.day_growth)].join(' ')}>
+                {formatPercent(fund.day_growth)}
+              </span>
             </div>
-          )}
-        </div>
-      </div>
-    </div>
+            <dl>
+              <div>
+                <dt>Month</dt>
+                <dd className={getChangeClass(fund.month_growth)}>
+                  {formatPercent(fund.month_growth)}
+                </dd>
+              </div>
+              <div>
+                <dt>Year</dt>
+                <dd className={getChangeClass(fund.year_growth)}>
+                  {formatPercent(fund.year_growth)}
+                </dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </section>
+    </DashboardShell>
   );
 }

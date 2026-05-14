@@ -1,8 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import PillNav from '../components/PillNav';
-import styles from '../../styles/Home.module.css';
+import DashboardShell from '../components/DashboardShell';
 import api from '../lib/api';
+import styles from '../../styles/Dashboard.module.css';
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
+}
+
+function getChangeClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return styles.neutral;
+  return number > 0 ? styles.positive : styles.negative;
+}
+
+function getToneClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
+  return number > 0 ? styles.tonePositive : styles.toneNegative;
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString();
+}
 
 export default function Profile() {
   const [user, setUser] = useState(null);
@@ -13,24 +38,30 @@ export default function Profile() {
   const [editingThreshold, setEditingThreshold] = useState(null);
   const [newThreshold, setNewThreshold] = useState('');
 
-  // 导航项 - 移除Account选项
-  const navItems = [
-    { label: 'Home', href: '/' },
-    { label: 'Funds', href: '/about' },
-  ];
-
-  // 获取用户信息
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     } else {
-      // 未登录，重定向到登录页
       window.location.href = '/login';
     }
   }, []);
 
-  // 获取关注列表
+  const fetchFundData = async (fundCode) => {
+    try {
+      const response = await api.getFund(fundCode);
+      if (response.ok) {
+        const data = await response.json();
+        setFundData((previous) => ({
+          ...previous,
+          [fundCode]: data,
+        }));
+      }
+    } catch (err) {
+      console.error('Error fetching fund data:', err);
+    }
+  };
+
   useEffect(() => {
     const fetchWatchlist = async () => {
       if (!user) return;
@@ -47,7 +78,6 @@ export default function Profile() {
           const data = await response.json();
           setWatchlist(data);
 
-          // 获取每个基金的实时数据
           for (const item of data) {
             fetchFundData(item.fundCode);
           }
@@ -55,7 +85,7 @@ export default function Profile() {
           throw new Error('Failed to fetch watchlist');
         }
       } catch (err) {
-        setError('无法获取关注列表');
+        setError('Unable to load watchlist.');
         console.error('Error fetching watchlist:', err);
       } finally {
         setLoading(false);
@@ -65,49 +95,31 @@ export default function Profile() {
     fetchWatchlist();
   }, [user]);
 
-  // 获取单个基金的实时数据
-  const fetchFundData = async (fundCode) => {
-    try {
-      const response = await api.getFund(fundCode);
-      if (response.ok) {
-        const data = await response.json();
-        setFundData(prev => ({
-          ...prev,
-          [fundCode]: data
-        }));
-      }
-    } catch (err) {
-      console.error('Error fetching fund data:', err);
-    }
-  };
-
-  // 取消关注
   const handleUnwatch = async (fundCode) => {
     try {
       const token = localStorage.getItem('token');
       const response = await api.removeFromWatchlist(token, fundCode);
 
       if (response.ok) {
-        setWatchlist(watchlist.filter(item => item.fundCode !== fundCode));
-        setFundData(prev => {
-          const newData = { ...prev };
-          delete newData[fundCode];
-          return newData;
+        setWatchlist(watchlist.filter((item) => item.fundCode !== fundCode));
+        setFundData((previous) => {
+          const next = { ...previous };
+          delete next[fundCode];
+          return next;
         });
       } else {
         const data = await response.json();
-        alert(data.error || '取消关注失败');
+        alert(data.error || 'Failed to remove fund.');
       }
     } catch (err) {
       console.error('Error removing from watchlist:', err);
-      alert('取消关注失败');
+      alert('Failed to remove fund.');
     }
   };
 
-  // 更新提醒阈值
   const handleUpdateThreshold = async (fundCode) => {
-    if (!newThreshold || isNaN(newThreshold)) {
-      alert('请输入有效的阈值');
+    if (!newThreshold || Number.isNaN(Number(newThreshold))) {
+      alert('Please enter a valid threshold.');
       return;
     }
 
@@ -117,248 +129,202 @@ export default function Profile() {
 
       if (response.ok) {
         const updatedItem = await response.json();
-        setWatchlist(watchlist.map(item => 
+        setWatchlist(watchlist.map((item) => (
           item.fundCode === fundCode ? updatedItem : item
-        ));
+        )));
         setEditingThreshold(null);
         setNewThreshold('');
       } else {
         const data = await response.json();
-        alert(data.error || '更新失败');
+        alert(data.error || 'Failed to update threshold.');
       }
     } catch (err) {
       console.error('Error updating threshold:', err);
-      alert('更新失败');
+      alert('Failed to update threshold.');
     }
   };
 
-  // 退出登录
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = '/login';
   };
 
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <PillNav items={navItems} activeHref="/profile" />
-        <div style={{ position: 'relative', zIndex: 1, paddingTop: '100px', textAlign: 'center' }}>
-          <p className={styles.loading}>加载中...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.container}>
-      {/* 导航栏 */}
-      <PillNav
-        items={navItems}
-        activeHref="/"
-        baseColor="#000000"
-        pillColor="#ffffff"
-        hoveredPillTextColor="#ffffff"
-        pillTextColor="#000000"
-      />
+    <DashboardShell
+      activeHref="/profile"
+      noteTitle="Watchlist"
+      noteText="Manage followed funds and alert thresholds from one place."
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.eyebrow}>Account</p>
+          <h1>Account / Watchlist</h1>
+          <p>Review your signed-in account and manage watched funds.</p>
+        </div>
+        <button className={styles.secondaryButton} type="button" onClick={handleLogout}>
+          Logout
+        </button>
+      </header>
 
-      {/* 内容层 */}
-      <div style={{ position: 'relative', zIndex: 1, paddingTop: '100px', maxWidth: '1200px', margin: '0 auto', padding: '100px 20px 0' }}>
-        <h1 className={styles.title}>账户中心</h1>
-        
-        {error && (
-          <div className={styles.message} style={{ marginBottom: '2rem', color: '#ff4444' }}>
-            {error}
-          </div>
-        )}
+      {error && <div className={styles.messageBox}>{error}</div>}
 
-        {/* 用户信息卡片 */}
-        <section style={{ marginBottom: '3rem' }}>
-          <h2 style={{ marginBottom: '1rem', color: '#ffffff' }}>个人信息</h2>
-          <div style={{
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            padding: '20px',
-            borderRadius: '8px'
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ opacity: 0.8 }}>邮箱:</span>
-                <span style={{ color: '#ffffff' }}>{user?.email || 'N/A'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ opacity: 0.8 }}>注册时间:</span>
-                <span style={{ color: '#ffffff' }}>{new Date().toLocaleDateString()}</span>
-              </div>
-              <button 
-                onClick={handleLogout}
-                style={{
-                  marginTop: '1rem',
-                  padding: '10px 20px',
-                  backgroundColor: '#ffffff',
-                  color: '#000000',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                }}
-              >
-                退出登录
-              </button>
+      <section className={styles.accountGrid}>
+        <article className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <div>
+              <h2>User information</h2>
+              <p>Current browser session</p>
             </div>
           </div>
-        </section>
+          <div className={styles.cardBody}>
+            <dl className={styles.infoList}>
+              <div>
+                <dt>Email</dt>
+                <dd>{user?.email || 'N/A'}</dd>
+              </div>
+              <div>
+                <dt>Watchlist items</dt>
+                <dd>{watchlist.length}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
 
-        {/* 关注的基金 */}
-        <section>
-          <h2 style={{ marginBottom: '1rem', color: '#ffffff' }}>关注的基金 ({watchlist.length})</h2>
-          {watchlist.length > 0 ? (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-              gap: '20px'
-            }}>
-              {watchlist.map((item) => {
-                const fund = fundData[item.fundCode];
-                return (
-                  <div key={item.fundCode} style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    padding: '20px',
-                    borderRadius: '8px'
-                  }}>
-                    <h3 style={{ marginBottom: '10px', textAlign: 'center' }}>{item.fundName}</h3>
-                    <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8, textAlign: 'center' }}>
-                      基金代码: {item.fundCode}
-                    </p>
-                    
-                    {/* 实时收益数据 */}
-                    {fund && (
-                      <>
-                        {fund.day_growth !== undefined && (
-                          <p style={{ margin: '5px 0', fontSize: '0.9rem', opacity: 0.8, textAlign: 'center' }}>
-                            日涨跌幅: <span style={{ color: fund.day_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                              {fund.day_growth >= 0 ? '+' : ''}{fund.day_growth}%
-                            </span>
-                          </p>
-                        )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '15px' }}>
-                          <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                            <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1月收益</span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                              {fund.month_growth !== undefined ? `${fund.month_growth >= 0 ? '+' : ''}${fund.month_growth}%` : '-'}
-                            </span>
-                          </div>
-                          <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                            <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近3月收益</span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.three_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                              {fund.three_month_growth !== undefined ? `${fund.three_month_growth >= 0 ? '+' : ''}${fund.three_month_growth}%` : '-'}
-                            </span>
-                          </div>
-                          <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                            <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近6月收益</span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.six_month_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                              {fund.six_month_growth !== undefined ? `${fund.six_month_growth >= 0 ? '+' : ''}${fund.six_month_growth}%` : '-'}
-                            </span>
-                          </div>
-                          <div style={{ padding: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.2)' }}>
-                            <span style={{ display: 'block', fontSize: '0.8rem', opacity: 0.8 }}>近1年收益</span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: '300', color: fund.year_growth >= 0 ? '#ff4444' : '#00ff00' }}>
-                              {fund.year_growth !== undefined ? `${fund.year_growth >= 0 ? '+' : ''}${fund.year_growth}%` : '-'}
-                            </span>
-                          </div>
-                        </div>
-                      </>
-                    )}
+        <article className={styles.sourcePanel}>
+          <span>Data source</span>
+          <strong>GET /api/watchlist</strong>
+          <p>Watchlist changes are scoped by the authenticated user and fund code.</p>
+        </article>
+      </section>
 
-                    {/* 提醒阈值设置 */}
-                    <div style={{ marginTop: '15px', padding: '10px', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>提醒阈值:</span>
-                        {editingThreshold === item.fundCode ? (
-                          <div style={{ display: 'flex', gap: '5px' }}>
-                            <input
-                              type="number"
-                              value={newThreshold}
-                              onChange={(e) => setNewThreshold(e.target.value)}
-                              placeholder="输入阈值"
-                              style={{
-                                width: '80px',
-                                padding: '5px',
-                                borderRadius: '4px',
-                                border: '1px solid #ddd'
-                              }}
-                            />
-                            <button
-                              onClick={() => handleUpdateThreshold(item.fundCode)}
-                              style={{
-                                padding: '5px 10px',
-                                borderRadius: '4px',
-                                border: 'none',
-                                backgroundColor: '#4CAF50',
-                                color: 'white',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              保存
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>{item.alertThreshold}%</span>
-                        )}
-                      </div>
-                      {editingThreshold !== item.fundCode && (
+      <article className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <div>
+            <h2>Watched funds</h2>
+            <p>{loading ? 'Loading watchlist' : `${watchlist.length} followed funds`}</p>
+          </div>
+          <Link className={styles.detailLink} href="/about">
+            Add funds
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className={styles.loadingCards}>
+            <span />
+            <span />
+            <span />
+          </div>
+        ) : watchlist.length === 0 ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyMark} aria-hidden="true" />
+            <strong>No watched funds yet</strong>
+            <p>Open Funds to add items to your watchlist.</p>
+            <Link className={styles.detailLink} href="/about">
+              Go to Funds
+            </Link>
+          </div>
+        ) : (
+          <div className={styles.watchlistGrid}>
+            {watchlist.map((item) => {
+              const fund = fundData[item.fundCode];
+
+              return (
+                <article className={styles.watchCard} key={item.fundCode}>
+                  <div className={styles.watchCardHeader}>
+                    <div>
+                      <h3>{item.fundName || fund?.fund_name || 'Fund'}</h3>
+                      <p>{item.fundCode}</p>
+                    </div>
+                    <span className={[styles.changePill, getToneClass(fund?.day_growth)].join(' ')}>
+                      {formatPercent(fund?.day_growth)}
+                    </span>
+                  </div>
+
+                  <dl className={styles.metricGrid}>
+                    <div>
+                      <dt>Net value</dt>
+                      <dd>{fund?.net_value ?? '-'}</dd>
+                    </div>
+                    <div>
+                      <dt>Date</dt>
+                      <dd>{fund?.net_value_date || '-'}</dd>
+                    </div>
+                    <div>
+                      <dt>1 month</dt>
+                      <dd className={getChangeClass(fund?.month_growth)}>
+                        {formatPercent(fund?.month_growth)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>1 year</dt>
+                      <dd className={getChangeClass(fund?.year_growth)}>
+                        {formatPercent(fund?.year_growth)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className={styles.thresholdBox}>
+                    <span>Alert threshold</span>
+                    {editingThreshold === item.fundCode ? (
+                      <div className={styles.thresholdEditor}>
+                        <input
+                          type="number"
+                          value={newThreshold}
+                          onChange={(event) => setNewThreshold(event.target.value)}
+                          placeholder="Threshold"
+                        />
                         <button
+                          className={styles.primaryButtonSmall}
+                          type="button"
+                          onClick={() => handleUpdateThreshold(item.fundCode)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          className={styles.secondaryButtonSmall}
+                          type="button"
                           onClick={() => {
-                            setEditingThreshold(item.fundCode);
-                            setNewThreshold(item.alertThreshold.toString());
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: '5px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem'
+                            setEditingThreshold(null);
+                            setNewThreshold('');
                           }}
                         >
-                          修改阈值
+                          Cancel
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className={styles.thresholdDisplay}>
+                        <strong>{item.alertThreshold}%</strong>
+                        <button
+                          className={styles.detailButton}
+                          type="button"
+                          onClick={() => {
+                            setEditingThreshold(item.fundCode);
+                            setNewThreshold(String(item.alertThreshold));
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                    {/* 添加时间 */}
-                    <div style={{ marginTop: '10px', fontSize: '0.8rem', opacity: 0.6, textAlign: 'center' }}>
-                      添加时间: {new Date(item.addedAt).toLocaleDateString()}
-                    </div>
-
-                    {/* 取消关注按钮 */}
+                  <div className={styles.cardActions}>
+                    <span>Added {formatDate(item.addedAt)}</span>
                     <button
+                      className={styles.dangerButton}
+                      type="button"
                       onClick={() => handleUnwatch(item.fundCode)}
-                      style={{
-                        width: '100%',
-                        marginTop: '15px',
-                        padding: '8px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        backgroundColor: '#ff4444',
-                        color: 'white',
-                        cursor: 'pointer'
-                      }}
                     >
-                      取消关注
+                      Remove
                     </button>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center', padding: '40px' }}>
-              您还没有关注任何基金，<Link href="/about" style={{ color: '#4CAF50' }}>去关注</Link>
-            </p>
-          )}
-        </section>
-      </div>
-    </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </article>
+    </DashboardShell>
   );
 }

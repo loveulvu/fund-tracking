@@ -763,6 +763,333 @@
   margin-top: 8px;
 }
 
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 18px;
+}
+
+.pageHeader h1 {
+  font-size: 34px;
+  line-height: 1.15;
+  margin: 5px 0 10px;
+}
+
+.pageHeader p {
+  max-width: 720px;
+  color: #64748b;
+  line-height: 1.65;
+}
+
+.searchPanel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.formCard {
+  max-width: 520px;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+  overflow: hidden;
+}
+
+.formStack,
+.cardBody {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span,
+.thresholdBox span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.field input,
+.thresholdEditor input {
+  width: 100%;
+  height: 44px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0 12px;
+  outline: none;
+}
+
+.field input:focus,
+.thresholdEditor input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.primaryButtonSmall,
+.secondaryButtonSmall {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryButton,
+.primaryButtonSmall {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.primaryButton:hover,
+.primaryButtonSmall:hover {
+  background: #1d4ed8;
+}
+
+.secondaryButton,
+.secondaryButtonSmall {
+  border: 1px solid #dbeafe;
+  background: #ffffff;
+  color: #2563eb;
+}
+
+.secondaryButton:hover,
+.secondaryButtonSmall:hover {
+  background: #eff6ff;
+}
+
+.dangerButton {
+  min-height: 32px;
+  border: 1px solid #fee2e2;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #dc2626;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.dangerButton:hover {
+  background: #fee2e2;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled,
+.primaryButtonSmall:disabled,
+.secondaryButtonSmall:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.messageBox {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.authLayout {
+  display: grid;
+  grid-template-columns: minmax(280px, 520px) minmax(240px, 360px);
+  gap: 16px;
+  align-items: start;
+}
+
+.authSwitch {
+  border-top: 1px solid #edf2f7;
+  color: #64748b;
+  padding: 16px 20px;
+  font-size: 14px;
+}
+
+.authSwitch a {
+  color: #2563eb;
+  font-weight: 800;
+}
+
+.authAside {
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 18px;
+}
+
+.authAside span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.authAside strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 18px;
+}
+
+.authAside p {
+  color: #64748b;
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+.accountGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.infoList {
+  display: grid;
+  gap: 12px;
+}
+
+.infoList div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #edf2f7;
+  padding-bottom: 12px;
+}
+
+.infoList div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.infoList dt {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.infoList dd {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.watchlistGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.watchCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.watchCardHeader,
+.thresholdDisplay,
+.cardActions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.watchCardHeader h3 {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.watchCardHeader p,
+.cardActions span {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.metricGrid div {
+  border: 1px solid #edf2f7;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.metricGrid dt {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.metricGrid dd {
+  margin-top: 6px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.thresholdBox {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.thresholdEditor {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.thresholdDisplay {
+  align-items: center;
+  margin-top: 8px;
+}
+
+.thresholdDisplay strong {
+  color: #1d4ed8;
+  font-size: 18px;
+}
+
+.cardActions {
+  align-items: center;
+}
+
+.fundCardsCompact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
 .detailLayer {
   position: fixed;
   inset: 0;
@@ -1066,7 +1393,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .mainGrid {
+  .mainGrid,
+  .accountGrid,
+  .authLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .fundCardsCompact {
     grid-template-columns: 1fr;
   }
 }
@@ -1097,6 +1430,14 @@
 
   .heroMeta {
     width: 100%;
+  }
+
+  .pageHeader {
+    flex-direction: column;
+  }
+
+  .searchPanel {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1165,7 +1506,9 @@
   }
 
   .detailSummary,
-  .detailList {
+  .detailList,
+  .metricGrid,
+  .thresholdEditor {
     grid-template-columns: 1fr;
   }
 
