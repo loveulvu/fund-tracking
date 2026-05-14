@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -66,7 +67,31 @@ type alertLogDocument struct {
 	Reason         string    `bson:"reason"`
 	Status         string    `bson:"status"`
 	CreatedAt      time.Time `bson:"createdAt"`
+	UpdatedAt      time.Time `bson:"updatedAt"`
 	Source         string    `bson:"source"`
+}
+
+type alertSendResponse struct {
+	Status       string          `json:"status"`
+	Selected     int             `json:"selected"`
+	Ready        int             `json:"ready"`
+	Skipped      int             `json:"skipped"`
+	Failed       int             `json:"failed"`
+	ReadyItems   []alertSendItem `json:"ready_items"`
+	SkippedItems []alertSendItem `json:"skipped_items"`
+	FailedItems  []alertSendItem `json:"failed_items"`
+	DurationMs   int64           `json:"duration_ms"`
+	DryRun       bool            `json:"dry_run"`
+}
+
+type alertSendItem struct {
+	UserID         string  `json:"userId,omitempty"`
+	FundCode       string  `json:"fundCode,omitempty"`
+	FundName       string  `json:"fundName,omitempty"`
+	DayGrowth      float64 `json:"dayGrowth,omitempty"`
+	AlertThreshold float64 `json:"alertThreshold,omitempty"`
+	NetValueDate   string  `json:"netValueDate,omitempty"`
+	Reason         string  `json:"reason,omitempty"`
 }
 
 func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +123,43 @@ func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := buildAlertCheckResponse(ctx, watchlistItems, start)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
+func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	start := time.Now()
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !requireUpdateAPIKeyHeader(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pendingLogs, err := findPendingAlertLogsForEmail(ctx)
+	if err != nil {
+		http.Error(w, "Failed to load pending alert logs", http.StatusInternalServerError)
+		return
+	}
+
+	response := buildAlertSendDryRunResponse(ctx, pendingLogs, start)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -238,7 +300,6 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 		"fundCode":       item.FundCode,
 		"netValueDate":   item.NetValueDate,
 		"alertThreshold": item.AlertThreshold,
-		"status":         "triggered",
 	}
 
 	err := collection.FindOne(ctx, filter).Err()
@@ -249,6 +310,7 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 		return false, err
 	}
 
+	now := time.Now().UTC()
 	document := alertLogDocument{
 		UserID:         item.UserID,
 		FundCode:       item.FundCode,
@@ -257,8 +319,9 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 		AlertThreshold: item.AlertThreshold,
 		NetValueDate:   item.NetValueDate,
 		Reason:         item.Reason,
-		Status:         "triggered",
-		CreatedAt:      time.Now().UTC(),
+		Status:         "pending_email",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 		Source:         "alerts_check",
 	}
 
@@ -266,6 +329,155 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 		return false, err
 	}
 	return true, nil
+}
+
+func buildAlertSendDryRunResponse(ctx context.Context, logs []bson.M, start time.Time) alertSendResponse {
+	readyItems := make([]alertSendItem, 0)
+	skippedItems := make([]alertSendItem, 0)
+	failedItems := make([]alertSendItem, 0)
+
+	for _, logItem := range logs {
+		item := alertSendItemFromLog(logItem)
+		logID := logItem["_id"]
+		email, found, err := findUserEmailForAlert(ctx, item.UserID)
+		if err != nil {
+			item.Reason = "user lookup failed: " + err.Error()
+			failedItems = append(failedItems, item)
+			continue
+		}
+
+		if !found || email == "" {
+			if err := markAlertLogSkippedNoEmail(ctx, logID); err != nil {
+				item.Reason = "status update failed: " + err.Error()
+				failedItems = append(failedItems, item)
+				continue
+			}
+			item.Reason = "missing user email"
+			skippedItems = append(skippedItems, item)
+			continue
+		}
+
+		if err := markAlertLogEmailReady(ctx, logID, email); err != nil {
+			item.Reason = "status update failed: " + err.Error()
+			failedItems = append(failedItems, item)
+			continue
+		}
+		item.Reason = "dry-run email ready"
+		readyItems = append(readyItems, item)
+	}
+
+	status := "success"
+	if len(failedItems) > 0 && len(readyItems)+len(skippedItems) > 0 {
+		status = "partial_success"
+	}
+	if len(logs) > 0 && len(failedItems) == len(logs) {
+		status = "failed"
+	}
+
+	return alertSendResponse{
+		Status:       status,
+		Selected:     len(logs),
+		Ready:        len(readyItems),
+		Skipped:      len(skippedItems),
+		Failed:       len(failedItems),
+		ReadyItems:   readyItems,
+		SkippedItems: skippedItems,
+		FailedItems:  failedItems,
+		DurationMs:   time.Since(start).Milliseconds(),
+		DryRun:       true,
+	}
+}
+
+func findPendingAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
+	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
+	filter := bson.M{
+		"status": bson.M{
+			"$in": []string{"pending_email", "triggered"},
+		},
+	}
+	findOptions := options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}})
+
+	cursor, err := collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	items := make([]bson.M, 0)
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func findUserEmailForAlert(ctx context.Context, userID string) (string, bool, error) {
+	collection := mongoClient.Database("fund_tracking").Collection("users")
+	filters := make([]bson.M, 0, 2)
+	if objectID, err := primitive.ObjectIDFromHex(userID); err == nil {
+		filters = append(filters, bson.M{"_id": objectID})
+	}
+	filters = append(filters, bson.M{"_id": userID})
+
+	findOptions := options.FindOne().SetProjection(bson.M{"email": 1})
+	for _, filter := range filters {
+		var user bson.M
+		err := collection.FindOne(ctx, filter, findOptions).Decode(&user)
+		if err == nil {
+			email := strings.TrimSpace(stringifyAlertValue(user["email"]))
+			return email, email != "", nil
+		}
+		if err != mongo.ErrNoDocuments {
+			return "", false, err
+		}
+	}
+	return "", false, nil
+}
+
+func markAlertLogEmailReady(ctx context.Context, logID any, email string) error {
+	now := time.Now().UTC()
+	return updateAlertLogEmailStatus(ctx, logID, bson.M{
+		"status":        "email_ready",
+		"email":         email,
+		"updatedAt":     now,
+		"lastAttemptAt": now,
+		"lastError":     "",
+	})
+}
+
+func markAlertLogSkippedNoEmail(ctx context.Context, logID any) error {
+	now := time.Now().UTC()
+	return updateAlertLogEmailStatus(ctx, logID, bson.M{
+		"status":        "skipped_no_email",
+		"updatedAt":     now,
+		"lastAttemptAt": now,
+		"lastError":     "missing user email",
+	})
+}
+
+func updateAlertLogEmailStatus(ctx context.Context, logID any, setFields bson.M) error {
+	if logID == nil {
+		return fmt.Errorf("missing alert log id")
+	}
+	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
+	result, err := collection.UpdateOne(ctx, bson.M{"_id": logID}, bson.M{
+		"$set": setFields,
+		"$inc": bson.M{"retryCount": 1},
+	})
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("alert log not found")
+	}
+	return nil
+}
+
+func requireUpdateAPIKeyHeader(r *http.Request) bool {
+	expectedKey := os.Getenv("UPDATE_API_KEY")
+	if expectedKey == "" {
+		return true
+	}
+	return r.Header.Get("X-Update-Key") == expectedKey
 }
 
 func findWatchlistItemsForAlertCheck(ctx context.Context) ([]bson.M, error) {
@@ -354,6 +566,19 @@ func parseAlertNumber(value any, fieldName string) (float64, error) {
 		return 0, fmt.Errorf("%s is not finite", fieldName)
 	}
 	return parsed, nil
+}
+
+func alertSendItemFromLog(logItem bson.M) alertSendItem {
+	dayGrowth, _ := parseAlertNumber(logItem["dayGrowth"], "dayGrowth")
+	alertThreshold, _ := parseAlertNumber(logItem["alertThreshold"], "alertThreshold")
+	return alertSendItem{
+		UserID:         stringifyAlertValue(logItem["userId"]),
+		FundCode:       stringifyAlertValue(logItem["fundCode"]),
+		FundName:       stringifyAlertValue(logItem["fundName"]),
+		DayGrowth:      dayGrowth,
+		AlertThreshold: alertThreshold,
+		NetValueDate:   stringifyAlertValue(logItem["netValueDate"]),
+	}
 }
 
 func stringifyAlertValue(value any) string {
