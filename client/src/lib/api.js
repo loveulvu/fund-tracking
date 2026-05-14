@@ -1,19 +1,4 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 export const GO_API_BASE_URL = process.env.NEXT_PUBLIC_GO_API_URL || 'http://127.0.0.1:8081';
-
-const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
-
-export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && LOCAL_HOSTNAMES.has(window.location.hostname)) {
-    return '';
-  }
-
-  return API_BASE_URL;
-}
-
-export function apiUrl(path) {
-  return `${getApiBaseUrl()}${path}`;
-}
 
 export function goApiUrl(path) {
   return `${GO_API_BASE_URL}${path}`;
