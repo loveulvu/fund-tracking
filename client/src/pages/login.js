@@ -7,7 +7,6 @@ export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +24,9 @@ export default function Login() {
 
       if (response.ok) {
         if (isRegister) {
-          setMessage(result.message || '验证码已发送！请检查邮箱获取验证码');
+          setMessage('Registration successful. Please log in.');
+          setIsRegister(false);
+          setPassword('');
         } else {
           localStorage.setItem('token', result.token);
           localStorage.setItem('user', JSON.stringify({ email: result.email }));
@@ -33,34 +34,6 @@ export default function Login() {
         }
       } else {
         setMessage(result.error || '操作失败');
-      }
-    } catch (error) {
-      setMessage('网络错误，请稍后重试');
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-
-    try {
-      const response = await api.verifyEmail(email, verificationCode, password);
-
-      const result = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('token', result.token);
-        localStorage.setItem('user', JSON.stringify({ email: result.email }));
-        setMessage('验证成功！正在跳转...');
-        setTimeout(() => {
-          window.location.href = '/profile';
-        }, 1000);
-      } else {
-        setMessage(result.error || '验证失败');
       }
     } catch (error) {
       setMessage('网络错误，请稍后重试');
@@ -92,46 +65,29 @@ export default function Login() {
         )}
 
         {isRegister ? (
-          <>
-            <form onSubmit={handleSubmit} className={styles.form}>
-              <div className={styles.inputGroup}>
-                <label>邮箱</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className={styles.inputGroup}>
-                <label>密码</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <button type="submit" className={styles.button} disabled={loading}>
-                {loading ? '注册中...' : '注册'}
-              </button>
-            </form>
-
-            <form onSubmit={handleVerify} className={styles.form}>
-              <div className={styles.inputGroup}>
-                <label>验证码</label>
-                <input
-                  type="text"
-                  value={verificationCode}
-                  onChange={(e) => setVerificationCode(e.target.value)}
-                  required
-                />
-              </div>
-              <button type="submit" className={styles.button} disabled={loading}>
-                {loading ? '验证中...' : '验证'}
-              </button>
-            </form>
-          </>
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <div className={styles.inputGroup}>
+              <label>邮箱</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.inputGroup}>
+              <label>密码</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className={styles.button} disabled={loading}>
+              {loading ? '注册中...' : '注册'}
+            </button>
+          </form>
         ) : (
           <form onSubmit={handleSubmit} className={styles.form}>
             <div className={styles.inputGroup}>
