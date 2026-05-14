@@ -19,15 +19,6 @@ export function goApiUrl(path) {
   return `${GO_API_BASE_URL}${path}`;
 }
 
-async function fetchJson(path, options = {}) {
-  const response = await fetch(apiUrl(path), options);
-  if (!response.ok) {
-    throw new Error(`接口返回 ${response.status}`);
-  }
-
-  return response.json();
-}
-
 async function fetchGoJson(path, options = {}) {
   const response = await fetch(goApiUrl(path), options);
   if (!response.ok) {
@@ -92,18 +83,6 @@ export const api = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
-  }),
-
-  verifyEmail: (email, code, password) => fetch(apiUrl('/api/auth/verify'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, code, password })
-  }),
-
-  resendVerification: (email) => fetch(goApiUrl('/api/auth/resend'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email })
   })
 };
 
