@@ -6,7 +6,6 @@ import styles from '../../styles/Dashboard.module.css';
 const NAV_ITEMS = [
   { label: '总览', href: '/', active: true },
   { label: '基金列表', href: '/about' },
-  { label: '关注列表', href: '/profile' },
   { label: '登录', href: '/login' },
 ];
 
@@ -261,7 +260,7 @@ export default function Home() {
         </nav>
 
         <div className={styles.sidebarNote}>
-          <span>Portfolio data</span>
+          <span>持仓数据</span>
           <strong>需要接入持仓数据</strong>
           <p>总资产、收益和配置图暂不展示真实数值。</p>
         </div>
@@ -284,7 +283,7 @@ export default function Home() {
 
         <section className={styles.hero}>
           <div>
-            <p className={styles.eyebrow}>Fund Dashboard</p>
+            <p className={styles.eyebrow}>基金总览</p>
             <h1>基金追踪概览</h1>
             <p>
               基于现有 <code>/api/funds</code> 接口展示基金净值和阶段表现。
@@ -329,16 +328,15 @@ export default function Home() {
             <article className={styles.chartPanel}>
               <div className={styles.panelHeader}>
                 <div>
-                  <h2>Portfolio Performance</h2>
-                  <p>组合收益曲线</p>
+                  <h2>组合收益趋势</h2>
+                  <p>需要接入持仓份额和历史净值快照后展示</p>
                 </div>
-                <span className={styles.panelBadgeMuted}>数据源未接入</span>
+                <span className={styles.panelBadgeMuted}>暂未接入</span>
               </div>
-              <div className={styles.chartPlaceholder}>
-                <div className={styles.chartGrid} aria-hidden="true" />
+              <div className={[styles.chartPlaceholder, styles.trendEmpty].join(' ')}>
                 <div className={styles.placeholderCopy}>
-                  <strong>需要接入持仓数据后展示组合收益曲线</strong>
-                  <p>当前只有基金行情数据，没有用户持仓、份额和组合历史市值。</p>
+                  <strong>暂无组合收益数据</strong>
+                  <p>当前系统只展示基金净值和阶段表现，暂未记录用户持仓份额与历史收益曲线。</p>
                 </div>
               </div>
             </article>
@@ -539,7 +537,7 @@ export default function Home() {
             </article>
 
             <article className={styles.sourcePanel}>
-              <span>Data source</span>
+              <span>数据来源</span>
               <strong>GET /api/funds</strong>
               <p>本页行情、统计、详情和榜单均来自当前基金列表接口；持仓类数据源未接入。</p>
             </article>

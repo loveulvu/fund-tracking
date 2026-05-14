@@ -52,7 +52,7 @@ export function AuthPage({ initialMode = 'login' }) {
       noteTitle="账户入口"
       noteText="登录后可以管理关注基金和提醒阈值。"
     >
-      <header className={styles.pageHeader}>
+      <header className={[styles.pageHeader, styles.authPageHeader].join(' ')}>
         <div>
           <p className={styles.eyebrow}>账户</p>
           <h1>{isRegister ? '注册账户' : '登录'}</h1>

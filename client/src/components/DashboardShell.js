@@ -7,12 +7,17 @@ export default function DashboardShell({ activeHref, children, noteTitle, noteTe
     typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
   ));
 
-  const navItems = [
-    { label: '总览', href: '/' },
-    { label: '基金列表', href: '/about' },
-    { label: '关注列表', href: '/profile' },
-    { label: isLoggedIn ? '账户' : '登录', href: isLoggedIn ? '/profile' : '/login' },
-  ];
+  const navItems = isLoggedIn
+    ? [
+        { label: '总览', href: '/' },
+        { label: '基金列表', href: '/about' },
+        { label: '账户', href: '/profile' },
+      ]
+    : [
+        { label: '总览', href: '/' },
+        { label: '基金列表', href: '/about' },
+        { label: '登录', href: '/login' },
+      ];
 
   return (
     <main className={styles.shell}>

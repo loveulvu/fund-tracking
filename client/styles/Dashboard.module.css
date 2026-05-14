@@ -783,6 +783,16 @@
   line-height: 1.65;
 }
 
+.authPageHeader {
+  justify-content: center;
+  text-align: center;
+  margin: 10px 0 8px;
+}
+
+.authPageHeader p {
+  max-width: 520px;
+}
+
 .searchPanel {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto auto;
@@ -974,10 +984,8 @@
   margin-top: 8px;
 }
 
-.accountGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 16px;
+.accountGridCompact {
+  display: block;
   margin-bottom: 16px;
 }
 
@@ -1008,6 +1016,13 @@
 .infoList dd {
   color: #0f172a;
   font-weight: 800;
+}
+
+.cardFooter {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid #edf2f7;
+  padding-top: 14px;
 }
 
 .watchlistGrid {
@@ -1453,7 +1468,6 @@
   }
 
   .mainGrid,
-  .accountGrid,
   .authLayout {
     grid-template-columns: 1fr;
   }

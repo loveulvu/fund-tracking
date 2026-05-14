@@ -170,23 +170,20 @@ export default function Profile() {
   return (
     <DashboardShell
       activeHref="/profile"
-      noteTitle="关注列表"
-      noteText="集中管理已关注基金和提醒阈值。"
+      noteTitle="账户"
+      noteText="管理登录状态、关注基金和提醒阈值。"
     >
       <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>账户</p>
-          <h1>账户 / 关注列表</h1>
-          <p>查看当前账户信息，并管理关注基金。</p>
+          <h1>账户</h1>
+          <p>管理登录状态、关注基金和提醒阈值。</p>
         </div>
-        <button className={styles.secondaryButton} type="button" onClick={handleLogout}>
-          退出登录
-        </button>
       </header>
 
       {error && <div className={styles.messageBox}>{error}</div>}
 
-      <section className={styles.accountGrid}>
+      <section className={styles.accountGridCompact}>
         <article className={styles.panel}>
           <div className={styles.panelHeader}>
             <div>
@@ -205,13 +202,12 @@ export default function Profile() {
                 <dd>{watchlist.length}</dd>
               </div>
             </dl>
+            <div className={styles.cardFooter}>
+              <button className={styles.secondaryButton} type="button" onClick={handleLogout}>
+                退出登录
+              </button>
+            </div>
           </div>
-        </article>
-
-        <article className={styles.sourcePanel}>
-          <span>数据来源</span>
-          <strong>GET /api/watchlist</strong>
-          <p>关注列表按登录用户和基金代码定位，避免跨用户误操作。</p>
         </article>
       </section>
 
