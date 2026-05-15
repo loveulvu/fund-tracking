@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -74,12 +77,12 @@ type alertLogDocument struct {
 type alertSendResponse struct {
 	Status       string          `json:"status"`
 	Selected     int             `json:"selected"`
-	Ready        int             `json:"ready"`
-	Skipped      int             `json:"skipped"`
+	Sent         int             `json:"sent"`
 	Failed       int             `json:"failed"`
-	ReadyItems   []alertSendItem `json:"ready_items"`
-	SkippedItems []alertSendItem `json:"skipped_items"`
+	Skipped      int             `json:"skipped"`
+	SentItems    []alertSendItem `json:"sent_items"`
 	FailedItems  []alertSendItem `json:"failed_items"`
+	SkippedItems []alertSendItem `json:"skipped_items"`
 	DurationMs   int64           `json:"duration_ms"`
 	DryRun       bool            `json:"dry_run"`
 }
@@ -92,6 +95,22 @@ type alertSendItem struct {
 	AlertThreshold float64 `json:"alertThreshold,omitempty"`
 	NetValueDate   string  `json:"netValueDate,omitempty"`
 	Reason         string  `json:"reason,omitempty"`
+}
+
+type alertSendErrorResponse struct {
+	Status string `json:"status"`
+	Error  string `json:"error"`
+	DryRun bool   `json:"dry_run"`
+}
+
+type resendConfig struct {
+	APIKey   string
+	From     string
+	FromName string
+}
+
+type resendEmailResponse struct {
+	ID string `json:"id"`
 }
 
 func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -153,13 +172,42 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	pendingLogs, err := findPendingAlertLogsForEmail(ctx)
+	emailReadyLogs, err := findEmailReadyAlertLogsForEmail(ctx)
 	if err != nil {
-		http.Error(w, "Failed to load pending alert logs", http.StatusInternalServerError)
+		http.Error(w, "Failed to load email-ready alert logs", http.StatusInternalServerError)
 		return
 	}
 
-	response := buildAlertSendDryRunResponse(ctx, pendingLogs, start)
+	if len(emailReadyLogs) == 0 {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(alertSendResponse{
+			Status:       "success",
+			Selected:     0,
+			Sent:         0,
+			Failed:       0,
+			Skipped:      0,
+			SentItems:    []alertSendItem{},
+			FailedItems:  []alertSendItem{},
+			SkippedItems: []alertSendItem{},
+			DurationMs:   time.Since(start).Milliseconds(),
+			DryRun:       false,
+		})
+		return
+	}
+
+	resendConfig, err := getResendConfig()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(alertSendErrorResponse{
+			Status: "failed",
+			Error:  err.Error(),
+			DryRun: false,
+		})
+		return
+	}
+
+	response := buildAlertSendResponse(ctx, emailReadyLogs, resendConfig, start)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -331,43 +379,49 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 	return true, nil
 }
 
-func buildAlertSendDryRunResponse(ctx context.Context, logs []bson.M, start time.Time) alertSendResponse {
-	readyItems := make([]alertSendItem, 0)
-	skippedItems := make([]alertSendItem, 0)
+func buildAlertSendResponse(ctx context.Context, logs []bson.M, config resendConfig, start time.Time) alertSendResponse {
+	sentItems := make([]alertSendItem, 0)
 	failedItems := make([]alertSendItem, 0)
+	skippedItems := make([]alertSendItem, 0)
 
 	for _, logItem := range logs {
 		item := alertSendItemFromLog(logItem)
 		logID := logItem["_id"]
-		email, found, err := findUserEmailForAlert(ctx, item.UserID)
-		if err != nil {
-			item.Reason = "user lookup failed: " + err.Error()
-			failedItems = append(failedItems, item)
-			continue
-		}
-
-		if !found || email == "" {
+		email := strings.TrimSpace(stringifyAlertValue(logItem["email"]))
+		if email == "" {
 			if err := markAlertLogSkippedNoEmail(ctx, logID); err != nil {
 				item.Reason = "status update failed: " + err.Error()
 				failedItems = append(failedItems, item)
 				continue
 			}
-			item.Reason = "missing user email"
+			item.Reason = "missing alert log email"
 			skippedItems = append(skippedItems, item)
 			continue
 		}
 
-		if err := markAlertLogEmailReady(ctx, logID, email); err != nil {
+		providerMessageID, err := sendAlertEmailWithResend(ctx, config, email, item)
+		if err != nil {
+			lastError := compactAlertError(err)
+			if updateErr := markAlertLogEmailFailed(ctx, logID, lastError); updateErr != nil {
+				item.Reason = "status update failed: " + updateErr.Error()
+			} else {
+				item.Reason = lastError
+			}
+			failedItems = append(failedItems, item)
+			continue
+		}
+
+		if err := markAlertLogEmailSent(ctx, logID, providerMessageID); err != nil {
 			item.Reason = "status update failed: " + err.Error()
 			failedItems = append(failedItems, item)
 			continue
 		}
-		item.Reason = "dry-run email ready"
-		readyItems = append(readyItems, item)
+		item.Reason = "email sent"
+		sentItems = append(sentItems, item)
 	}
 
 	status := "success"
-	if len(failedItems) > 0 && len(readyItems)+len(skippedItems) > 0 {
+	if len(failedItems) > 0 && len(sentItems)+len(skippedItems) > 0 {
 		status = "partial_success"
 	}
 	if len(logs) > 0 && len(failedItems) == len(logs) {
@@ -377,24 +431,20 @@ func buildAlertSendDryRunResponse(ctx context.Context, logs []bson.M, start time
 	return alertSendResponse{
 		Status:       status,
 		Selected:     len(logs),
-		Ready:        len(readyItems),
-		Skipped:      len(skippedItems),
+		Sent:         len(sentItems),
 		Failed:       len(failedItems),
-		ReadyItems:   readyItems,
-		SkippedItems: skippedItems,
+		Skipped:      len(skippedItems),
+		SentItems:    sentItems,
 		FailedItems:  failedItems,
+		SkippedItems: skippedItems,
 		DurationMs:   time.Since(start).Milliseconds(),
-		DryRun:       true,
+		DryRun:       false,
 	}
 }
 
-func findPendingAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
+func findEmailReadyAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
 	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
-	filter := bson.M{
-		"status": bson.M{
-			"$in": []string{"pending_email", "triggered"},
-		},
-	}
+	filter := bson.M{"status": "email_ready"}
 	findOptions := options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}})
 
 	cursor, err := collection.Find(ctx, filter, findOptions)
@@ -408,6 +458,100 @@ func findPendingAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func getResendConfig() (resendConfig, error) {
+	config := resendConfig{
+		APIKey:   strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
+		From:     strings.TrimSpace(os.Getenv("ALERT_EMAIL_FROM")),
+		FromName: strings.TrimSpace(os.Getenv("ALERT_EMAIL_FROM_NAME")),
+	}
+	missing := make([]string, 0)
+	if config.APIKey == "" {
+		missing = append(missing, "RESEND_API_KEY")
+	}
+	if config.From == "" {
+		missing = append(missing, "ALERT_EMAIL_FROM")
+	}
+	if len(missing) > 0 {
+		return resendConfig{}, fmt.Errorf("missing required email environment variables: %s", strings.Join(missing, ", "))
+	}
+	return config, nil
+}
+
+func sendAlertEmailWithResend(ctx context.Context, config resendConfig, recipient string, item alertSendItem) (string, error) {
+	payload := bson.M{
+		"from":    formatAlertEmailFrom(config),
+		"to":      []string{recipient},
+		"subject": buildAlertEmailSubject(item),
+		"html":    buildAlertEmailHTML(item),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+config.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("resend returned HTTP %d", resp.StatusCode)
+	}
+
+	var result resendEmailResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode resend response")
+	}
+	if strings.TrimSpace(result.ID) == "" {
+		return "", fmt.Errorf("resend response missing id")
+	}
+	return result.ID, nil
+}
+
+func formatAlertEmailFrom(config resendConfig) string {
+	if config.FromName == "" {
+		return config.From
+	}
+	return fmt.Sprintf("%s <%s>", config.FromName, config.From)
+}
+
+func buildAlertEmailSubject(item alertSendItem) string {
+	return fmt.Sprintf("基金提醒：%s 触发 %.2f%% 阈值", item.FundName, item.AlertThreshold)
+}
+
+func buildAlertEmailHTML(item alertSendItem) string {
+	return fmt.Sprintf(`
+<div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #1f2937;">基金阈值提醒</h2>
+  <p>你关注的基金已触发提醒条件。</p>
+  <table style="width: 100%%; border-collapse: collapse;">
+    <tr><td style="padding: 8px; color: #6b7280;">基金名称</td><td style="padding: 8px;">%s</td></tr>
+    <tr><td style="padding: 8px; color: #6b7280;">基金代码</td><td style="padding: 8px;">%s</td></tr>
+    <tr><td style="padding: 8px; color: #6b7280;">日涨跌幅</td><td style="padding: 8px;">%.2f%%</td></tr>
+    <tr><td style="padding: 8px; color: #6b7280;">提醒阈值</td><td style="padding: 8px;">%.2f%%</td></tr>
+    <tr><td style="padding: 8px; color: #6b7280;">净值日期</td><td style="padding: 8px;">%s</td></tr>
+    <tr><td style="padding: 8px; color: #6b7280;">触发原因</td><td style="padding: 8px;">%s</td></tr>
+  </table>
+</div>`,
+		html.EscapeString(item.FundName),
+		html.EscapeString(item.FundCode),
+		item.DayGrowth,
+		item.AlertThreshold,
+		html.EscapeString(item.NetValueDate),
+		html.EscapeString(item.Reason),
+	)
 }
 
 func findUserEmailForAlert(ctx context.Context, userID string) (string, bool, error) {
@@ -470,6 +614,58 @@ func updateAlertLogEmailStatus(ctx context.Context, logID any, setFields bson.M)
 		return fmt.Errorf("alert log not found")
 	}
 	return nil
+}
+
+func markAlertLogEmailSent(ctx context.Context, logID any, providerMessageID string) error {
+	now := time.Now().UTC()
+	return updateAlertLogEmailStatusWithStatus(ctx, logID, "email_ready", bson.M{
+		"status":            "email_sent",
+		"sentAt":            now,
+		"updatedAt":         now,
+		"lastAttemptAt":     now,
+		"lastError":         "",
+		"emailProvider":     "resend",
+		"providerMessageId": providerMessageID,
+	})
+}
+
+func markAlertLogEmailFailed(ctx context.Context, logID any, lastError string) error {
+	now := time.Now().UTC()
+	return updateAlertLogEmailStatusWithStatus(ctx, logID, "email_ready", bson.M{
+		"status":        "email_failed",
+		"updatedAt":     now,
+		"lastAttemptAt": now,
+		"lastError":     lastError,
+	})
+}
+
+func updateAlertLogEmailStatusWithStatus(ctx context.Context, logID any, currentStatus string, setFields bson.M) error {
+	if logID == nil {
+		return fmt.Errorf("missing alert log id")
+	}
+	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
+	result, err := collection.UpdateOne(ctx, bson.M{"_id": logID, "status": currentStatus}, bson.M{
+		"$set": setFields,
+		"$inc": bson.M{"retryCount": 1},
+	})
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("alert log not found or status changed")
+	}
+	return nil
+}
+
+func compactAlertError(err error) string {
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return "email send failed"
+	}
+	if len(message) > 180 {
+		message = message[:180]
+	}
+	return message
 }
 
 func requireUpdateAPIKeyHeader(r *http.Request) bool {
