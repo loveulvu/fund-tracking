@@ -58,6 +58,15 @@ export const api = {
     body: JSON.stringify({ alertThreshold: threshold })
   }),
 
+  importFund: (token, fundCode) => fetch(goApiUrl('/api/funds/import'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ fundCode })
+  }),
+
   login: (email, password) => fetch(goApiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

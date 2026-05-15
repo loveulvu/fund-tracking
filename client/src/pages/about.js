@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import DashboardShell from '../components/DashboardShell';
 import api from '../lib/api';
 import styles from '../../styles/Dashboard.module.css';
@@ -57,6 +58,7 @@ function getToneClass(value) {
 }
 
 export default function About() {
+  const router = useRouter();
   const [fundsData, setFundsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -66,6 +68,9 @@ export default function About() {
   const [watchlist, setWatchlist] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState({});
   const [lastUpdatedText, setLastUpdatedText] = useState('暂无数据');
+  const [importCandidateCode, setImportCandidateCode] = useState('');
+  const [importingCode, setImportingCode] = useState('');
+  const [importMessage, setImportMessage] = useState('');
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -188,11 +193,85 @@ export default function About() {
     fetchFundsData();
   }, []);
 
+  const clearImportState = () => {
+    setImportCandidateCode('');
+    setImportMessage('');
+  };
+
+  const mergeImportedFund = (fund) => {
+    if (!fund?.fund_code) return;
+
+    setFundsData((previous) => {
+      const exists = previous.some((item) => item.fund_code === fund.fund_code);
+      if (exists) {
+        return previous.map((item) => (item.fund_code === fund.fund_code ? fund : item));
+      }
+      return [fund, ...previous];
+    });
+    setFilteredFunds([fund]);
+  };
+
+  const handleImportFund = async () => {
+    const fundCode = importCandidateCode || searchTerm.trim();
+    if (!/^\d{6}$/.test(fundCode)) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setImportMessage('登录已过期，请重新登录。');
+      return;
+    }
+
+    try {
+      setImportingCode(fundCode);
+      setImportMessage('');
+      const response = await api.importFund(token, fundCode);
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 401) {
+        setImportMessage('登录已过期，请重新登录。');
+        return;
+      }
+
+      if (response.status === 400) {
+        setImportMessage('基金代码无效。');
+        return;
+      }
+
+      if (!response.ok) {
+        setImportMessage(data.error || data.message || '导入失败，请稍后重试。');
+        return;
+      }
+
+      if (data.fund) {
+        mergeImportedFund(data.fund);
+      }
+
+      if (data.result === 'existing') {
+        setImportMessage('该基金已收录，正在打开详情页。');
+      } else if (data.status === 'partial_success') {
+        setImportMessage('基础行情已导入，部分元数据待补全，正在打开详情页。');
+      } else {
+        setImportMessage('导入成功，正在打开详情页。');
+      }
+
+      setImportCandidateCode('');
+      window.setTimeout(() => {
+        router.push(`/fund/${fundCode}`);
+      }, 600);
+    } catch (err) {
+      console.error('Error importing fund:', err);
+      setImportMessage('导入失败，请稍后重试。');
+    } finally {
+      setImportingCode('');
+    }
+  };
+
   const handleSearch = async (event) => {
     event.preventDefault();
     const keyword = searchTerm.trim();
 
     if (keyword === '') {
+      clearImportState();
       setFilteredFunds(fundsData);
       return;
     }
@@ -202,9 +281,11 @@ export default function About() {
     if (isFundCode) {
       try {
         setLoading(true);
+        clearImportState();
         const response = await api.getFund(keyword);
         if (response.status === 404) {
           setFilteredFunds([]);
+          setImportCandidateCode(keyword);
           setError(null);
           return;
         }
@@ -229,6 +310,7 @@ export default function About() {
     } else {
       try {
         setLoading(true);
+        clearImportState();
         const response = await api.searchFunds(keyword);
         if (response.ok) {
           const data = await response.json();
@@ -270,7 +352,10 @@ export default function About() {
     setSearchTerm('');
     setFilteredFunds(fundsData);
     setError(null);
+    clearImportState();
   };
+
+  const showImportPrompt = /^\d{6}$/.test(importCandidateCode);
 
   return (
     <DashboardShell
@@ -296,7 +381,12 @@ export default function About() {
           <input
             type="text"
             value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
+            onChange={(event) => {
+              setSearchTerm(event.target.value);
+              if (importCandidateCode || importMessage) {
+                clearImportState();
+              }
+            }}
             placeholder="输入基金名称或 6 位基金代码"
           />
         </label>
@@ -309,6 +399,7 @@ export default function About() {
       </form>
 
       {error && <div className={styles.messageBox}>{error}</div>}
+      {importMessage && <div className={styles.messageBox}>{importMessage}</div>}
 
       <article className={styles.panel}>
         <div className={styles.panelHeader}>
@@ -329,8 +420,28 @@ export default function About() {
         ) : filteredFunds.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyMark} aria-hidden="true" />
-            <strong>当前数据库暂无匹配基金</strong>
-            <p>请尝试已收录的基金名称或 6 位基金代码。</p>
+            <strong>{showImportPrompt ? '当前数据库暂无该基金' : '当前数据库暂无匹配基金'}</strong>
+            <p>
+              {showImportPrompt
+                ? '当前数据库暂无该基金，可尝试导入。'
+                : '请尝试已收录的基金名称或 6 位基金代码。'}
+            </p>
+            {showImportPrompt && (
+              user ? (
+                <button
+                  className={styles.primaryButton}
+                  type="button"
+                  onClick={handleImportFund}
+                  disabled={importingCode === importCandidateCode}
+                >
+                  {importingCode === importCandidateCode ? '导入中...' : '导入该基金'}
+                </button>
+              ) : (
+                <Link className={styles.detailLink} href="/login">
+                  登录后可导入基金
+                </Link>
+              )
+            )}
           </div>
         ) : (
           <div className={styles.tableWrap}>
