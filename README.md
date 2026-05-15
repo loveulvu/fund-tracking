@@ -1,6 +1,6 @@
 # Fund Tracking
 
-Fund Tracking 是一个基金跟踪系统，支持基金数据展示、搜索、用户注册登录、watchlist 关注列表、阈值管理，以及工作日自动更新基金净值数据。
+Fund Tracking 是一个基金跟踪系统，支持基金数据展示、已收录基金搜索、基金详情、用户注册登录、watchlist 关注列表、阈值提醒、未收录 6 位基金代码导入，以及工作日自动更新基金数据和发送提醒邮件。
 
 ## 在线地址
 
@@ -21,12 +21,15 @@ Browser
   -> MongoDB Atlas
 
 GitHub Actions
-  -> /api/update
+  -> GET /api/update
+  -> GET /api/alerts/check
+  -> POST /api/alerts/send
   -> Render Go API
   -> MongoDB Atlas
+  -> Resend
 ```
 
-当前主链路是 Vercel 前端、Render Go API 和 MongoDB Atlas。Railway 只属于历史迁移阶段，不是当前主部署链路。
+当前主链路是 Vercel 前端、Render Go API、MongoDB Atlas、GitHub Actions 和 Resend。Railway 只属于历史迁移阶段，不是当前主部署链路。
 
 ## 技术栈
 
@@ -48,27 +51,31 @@ Database:
 
 - MongoDB Atlas
 
-Deployment:
+Deployment and automation:
 
 - Vercel
 - Render
 - GitHub Actions
+- Resend
 
 ## 核心功能
 
 1. 基金列表展示
-2. 基金搜索
-3. 基金详情
-4. 用户注册
-5. 用户登录
-6. JWT 认证
-7. Watchlist 添加、删除、阈值修改
-8. 基金数据更新接口 `/api/update`
-9. GitHub Actions 工作日定时更新
+2. 基金详情展示
+3. 已收录基金搜索
+4. 用户注册和登录
+5. JWT 认证
+6. Watchlist 添加、删除和阈值修改
+7. 未收录 6 位基金代码手动导入
+8. 基金元数据补全，包括类型、公司、经理、规模
+9. `/api/update` 自动更新基金基础行情
+10. `/api/alerts/check` 检测 watchlist 阈值触发
+11. `/api/alerts/send` 通过 Resend 发送提醒邮件
+12. GitHub Actions 工作日定时执行 update/check/send
 
 ## Go 后端重构说明
 
-项目正在从旧 Flask 后端迁移到 Go 后端。当前核心线上接口已经迁移到 Go：
+项目从旧 Flask 后端逐步迁移到 Go 后端，当前核心线上接口已经由 Go 提供：
 
 ```text
 GET    /api/version
@@ -76,6 +83,8 @@ GET    /api/health/mongo
 GET    /api/funds
 GET    /api/fund/{fundCode}
 GET    /api/search_proxy?query=...
+POST   /api/funds/import
+POST   /api/funds/enrich
 POST   /api/auth/register
 POST   /api/auth/login
 GET    /api/auth/me
@@ -84,21 +93,23 @@ POST   /api/watchlist
 PUT    /api/watchlist/{fundCode}
 DELETE /api/watchlist/{fundCode}
 GET    /api/update
+GET    /api/alerts/check
+POST   /api/alerts/send
 ```
 
-Go 后端保持现有前端 API 路径兼容，避免在迁移过程中破坏前端主流程。
+迁移原则是保持前端 API 路径和 JSON 结构兼容，按模块增量替换旧后端，而不是一次性重写整套系统。
 
 ## 数据更新机制
 
-`/api/update` 用于更新基金净值数据，当前机制如下：
+`/api/update` 用于更新基金基础行情数据，受 `UPDATE_API_KEY` 保护，普通前端用户不会直接调用。
 
-1. `/api/update` 受 `UPDATE_API_KEY` 保护。
-2. 普通前端用户不会直接调用 `/api/update`。
-3. GitHub Actions 在工作日 UTC 11:00 自动调用一次。
-4. UTC 11:00 对应中国和日本时间 20:00。
-5. 更新范围是 `defaultFundCodes + distinct(watchlists.fundCode)`。
-6. 非法基金代码会在更新前进入 `skipped_codes`。
-7. 已进入更新队列但抓取、校验或写入失败的基金会进入 `failed_codes`。
+更新范围：
+
+```text
+defaultFundCodes + distinct(watchlists.fundCode)
+```
+
+也就是先更新默认基金池，再更新所有用户 watchlist 中出现过的基金代码，并做全局去重。只有 6 位数字基金代码会进入更新队列，非法代码进入 `skipped_codes`。
 
 `/api/update` 返回字段包括：
 
@@ -114,15 +125,98 @@ failed_codes
 skipped_codes
 ```
 
+## 未收录基金导入
+
+前端 `/about` 页面只在用户输入完整 6 位数字基金代码、并且当前 MongoDB 未收录时，显示导入入口。
+
+导入规则：
+
+- 需要登录后调用 `POST /api/funds/import`
+- 不对模糊搜索自动抓取外部数据
+- 不自动加入用户 watchlist
+- 基础行情抓取失败时不写入 MongoDB
+- 元数据补全失败时保留基础行情，并返回部分成功信息
+- 不补阶段收益字段，不把缺失值伪造成 0
+
+已验证：
+
+- `000001` 可以成功导入，基础行情和元数据可读
+- `000002` 当前基础行情数据源不支持或返回失败，属于预期失败，不会写入坏数据
+
+## 阈值提醒和邮件
+
+提醒链路分三步：
+
+1. `/api/update` 更新基金基础行情
+2. `/api/alerts/check` 扫描 watchlist 阈值并写入 `alert_logs`
+3. `/api/alerts/send` 读取待发送记录并通过 Resend 发送邮件
+
+`alert_logs` 使用状态字段控制流转，核心状态包括：
+
+```text
+pending_email
+email_ready
+email_sent
+email_failed
+skipped_no_email
+```
+
+防重复规则：
+
+```text
+userId + fundCode + netValueDate + alertThreshold
+```
+
+同一用户、同一基金、同一净值日期、同一阈值条件不会重复发送。
+
+已验证：
+
+- 测试基金 `011839`
+- 测试阈值 `0.01`
+- `alert_logs.status = email_sent`
+- Resend 返回 `providerMessageId`
+- 目标邮箱已收到提醒邮件
+- 测试后阈值已恢复
+- 重复触发时不会重复发送
+
+## GitHub Actions
+
+默认分支 `main` 上的 workflow 在工作日 UTC 11:00 运行：
+
+```text
+cron: "0 11 * * 1-5"
+```
+
+UTC 11:00 对应中国和日本时间 20:00。
+
+workflow 调用顺序：
+
+```text
+GET  /api/update
+GET  /api/alerts/check
+POST /api/alerts/send
+```
+
+每段响应都会上传 artifact：
+
+```text
+update-response.json
+alerts-check-response.json
+alerts-send-response.json
+```
+
+GitHub Actions 只保存调用后端所需的公开后端地址和更新密钥，不保存 Resend API key。
+
 ## 安全设计
 
-1. `JWT_SECRET` 只在后端环境变量中配置。
-2. `UPDATE_API_KEY` 只在 Render 环境变量和 GitHub Secrets 中配置。
-3. `MONGO_URI` 只在 Render 环境变量中配置。
-4. `NEXT_PUBLIC_GO_API_URL` 只保存公开后端地址。
-5. 不要把 `MONGO_URI`、`JWT_SECRET`、`UPDATE_API_KEY` 放进任何 `NEXT_PUBLIC_*` 变量。
-6. `/api/update` 未携带正确 key 时返回 `401`。
-7. watchlist 操作使用 `userId + fundCode` 定位记录，避免跨用户误操作。
+1. `JWT_SECRET` 只在后端环境变量中。
+2. `MONGO_URI` 只在后端环境变量中。
+3. `UPDATE_API_KEY` 只在 Render 和 GitHub Actions Secrets 中。
+4. `RESEND_API_KEY` 只在 Render 后端环境变量中。
+5. `NEXT_PUBLIC_GO_API_URL` 只保存公开后端地址。
+6. 不要把 `MONGO_URI`、`JWT_SECRET`、`UPDATE_API_KEY`、`RESEND_API_KEY` 放进任何 `NEXT_PUBLIC_*`。
+7. `/api/update`、`/api/alerts/check`、`/api/alerts/send` 未携带正确 `X-Update-Key` 时不能执行。
+8. watchlist 操作使用当前登录用户的 `userId + fundCode` 定位，避免跨用户误操作。
 
 ## 环境变量说明
 
@@ -132,21 +226,24 @@ Render 后端需要：
 | --- | --- |
 | `MONGO_URI` | MongoDB Atlas 连接地址 |
 | `JWT_SECRET` | JWT 签名密钥 |
-| `UPDATE_API_KEY` | 保护 `/api/update` 的调用密钥 |
+| `UPDATE_API_KEY` | 保护后台 update/check/send 接口 |
+| `RESEND_API_KEY` | Resend 邮件发送 |
+| `ALERT_EMAIL_FROM` | 提醒邮件发件地址 |
+| `ALERT_EMAIL_FROM_NAME` | 提醒邮件发件名称 |
 | `APP_VERSION` | 后端版本标识 |
 
 Vercel 前端需要：
 
 | 变量名 | 用途 |
 | --- | --- |
-| `NEXT_PUBLIC_GO_API_URL` | 公开 Go 后端地址，例如 `https://fund-tracking-go-api.onrender.com` |
+| `NEXT_PUBLIC_GO_API_URL` | 公开 Go 后端地址 |
 
 GitHub Actions Secrets 需要：
 
 | Secret 名 | 用途 |
 | --- | --- |
-| `BACKEND_BASE_URL` | Go 后端公开地址，例如 `https://fund-tracking-go-api.onrender.com` |
-| `UPDATE_API_KEY` | 与 Render 后端环境变量保持一致 |
+| `BACKEND_BASE_URL` | Go 后端公开地址 |
+| `UPDATE_API_KEY` | 与 Render 后端一致，用于调用后台任务接口 |
 
 不要把真实 secret 写入代码、README 或前端公开环境变量。
 
@@ -167,34 +264,36 @@ npm install
 npm run dev
 ```
 
-本地运行后端需要配置 `MONGO_URI`、`JWT_SECRET`、`UPDATE_API_KEY`。开发环境可以使用本地或测试数据库，不需要使用生产 secret。
+本地运行后端需要配置 `MONGO_URI`、`JWT_SECRET`、`UPDATE_API_KEY`。如果要本地验证真实邮件发送，还需要配置 Resend 相关环境变量。不要使用生产 secret 作为公开示例。
 
-## 当前线上状态
-
-当前线上状态已验证：
+## 当前已验证线上状态
 
 1. `/api/version` 正常。
 2. `/api/health/mongo` 正常。
 3. `/api/funds` 正常。
-4. `/api/update` 受 key 保护。
-5. GitHub Actions 手动触发成功。
-6. 当前数据已无 `2026-04-01` 旧日期。
+4. `/api/update` 受 `UPDATE_API_KEY` 保护。
+5. `/api/funds/import` 可导入有效的未收录 6 位基金代码。
+6. `/api/funds/enrich` 可补全基金类型、公司、经理和规模。
+7. GitHub Actions 可按 update/check/send 顺序执行。
+8. Resend 邮件提醒链路已完成真实闭环。
+9. 当前旧日期数据问题已修复。
 
-最近一次验收中，`/api/funds` 返回 12 条基金数据，包含默认基金和 watchlist 中额外出现的基金代码。
+## 当前限制和后续计划
 
-## 项目限制和后续计划
+当前不支持或未完成：
 
-当前限制：
-
-1. Render Free Web Service 可能冷启动。
-2. 旧 Flask 代码仍存在，需要后续归档或清理。
-3. 前端 UI 还需要进一步统一。
-4. 邮件模块暂未恢复。
+1. 阶段收益字段暂未统一接入可靠数据源，缺失时显示“暂无数据”。
+2. 持仓金额、资产配置和收益曲线未实现。
+3. 不支持真实交易记录系统。
+4. 注册验证邮件暂未恢复。
+5. 不支持全市场模糊搜索自动外部导入。
+6. Render Free Web Service 可能冷启动。
+7. 旧 Flask 代码仍需后续归档或清理。
 
 后续计划：
 
-1. 统一前端 UI。
-2. 清理旧 Flask 和 Railway 迁移痕迹。
-3. 增加项目讲述文档。
-4. 评估邮件提醒模块。
-5. 可选：后端自定义域名 `api.fundtracking.online`。
+1. 继续清理旧 Flask 迁移痕迹。
+2. 评估阶段收益字段的数据源可靠性。
+3. 设计真实持仓和收益曲线的数据模型。
+4. 评估注册验证邮件恢复方案。
+5. 继续优化移动端 UI。
