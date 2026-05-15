@@ -760,11 +760,12 @@ func compactAlertError(err error) string {
 }
 
 func requireUpdateAPIKeyHeader(r *http.Request) bool {
-	expectedKey := os.Getenv("UPDATE_API_KEY")
+	expectedKey := configuredUpdateAPIKey()
 	if expectedKey == "" {
-		return true
+		return false
 	}
-	return r.Header.Get("X-Update-Key") == expectedKey
+	providedKey := strings.TrimSpace(r.Header.Get("X-Update-Key"))
+	return providedKey != "" && providedKey == expectedKey
 }
 
 func findWatchlistItemsForAlertCheck(ctx context.Context) ([]bson.M, error) {

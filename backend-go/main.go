@@ -330,15 +330,19 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func requireUpdateAPIKey(r *http.Request) bool {
-	expectedKey := os.Getenv("UPDATE_API_KEY")
+	expectedKey := configuredUpdateAPIKey()
 	if expectedKey == "" {
-		return true
+		return false
 	}
-	providedKey := r.Header.Get("X-Update-Key")
+	providedKey := strings.TrimSpace(r.Header.Get("X-Update-Key"))
 	if providedKey == "" {
-		providedKey = r.URL.Query().Get("key")
+		providedKey = strings.TrimSpace(r.URL.Query().Get("key"))
 	}
-	return providedKey == expectedKey
+	return providedKey != "" && providedKey == expectedKey
+}
+
+func configuredUpdateAPIKey() string {
+	return strings.TrimSpace(os.Getenv("UPDATE_API_KEY"))
 }
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
