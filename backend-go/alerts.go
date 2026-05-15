@@ -172,13 +172,13 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	emailReadyLogs, err := findEmailReadyAlertLogsForEmail(ctx)
+	alertLogs, err := findAlertLogsForEmail(ctx)
 	if err != nil {
-		http.Error(w, "Failed to load email-ready alert logs", http.StatusInternalServerError)
+		http.Error(w, "Failed to load alert logs for email", http.StatusInternalServerError)
 		return
 	}
 
-	if len(emailReadyLogs) == 0 {
+	if len(alertLogs) == 0 {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(alertSendResponse{
 			Status:       "success",
@@ -195,6 +195,26 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	emailReadyLogs, skippedItems, failedItems := prepareAlertLogsForEmail(ctx, alertLogs)
+
+	if len(emailReadyLogs) == 0 {
+		response := alertSendResponse{
+			Status:       determineAlertSendStatus(len(alertLogs), 0, len(skippedItems), len(failedItems)),
+			Selected:     len(alertLogs),
+			Sent:         0,
+			Failed:       len(failedItems),
+			Skipped:      len(skippedItems),
+			SentItems:    []alertSendItem{},
+			FailedItems:  failedItems,
+			SkippedItems: skippedItems,
+			DurationMs:   time.Since(start).Milliseconds(),
+			DryRun:       false,
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	resendConfig, err := getResendConfig()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -208,6 +228,7 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := buildAlertSendResponse(ctx, emailReadyLogs, resendConfig, start)
+	response = mergeAlertSendPreparation(response, len(alertLogs), skippedItems, failedItems)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -379,6 +400,60 @@ func logAlertTrigger(ctx context.Context, item alertTriggeredItem) (bool, error)
 	return true, nil
 }
 
+func prepareAlertLogsForEmail(ctx context.Context, logs []bson.M) ([]bson.M, []alertSendItem, []alertSendItem) {
+	emailReadyLogs := make([]bson.M, 0, len(logs))
+	skippedItems := make([]alertSendItem, 0)
+	failedItems := make([]alertSendItem, 0)
+
+	for _, logItem := range logs {
+		item := alertSendItemFromLog(logItem)
+		logID := logItem["_id"]
+		status := stringifyAlertValue(logItem["status"])
+
+		if status == "email_ready" {
+			if strings.TrimSpace(stringifyAlertValue(logItem["email"])) == "" {
+				if err := markAlertLogSkippedNoEmail(ctx, logID); err != nil {
+					item.Reason = "status update failed: " + err.Error()
+					failedItems = append(failedItems, item)
+					continue
+				}
+				item.Reason = "missing alert log email"
+				skippedItems = append(skippedItems, item)
+				continue
+			}
+			emailReadyLogs = append(emailReadyLogs, logItem)
+			continue
+		}
+
+		email, found, err := findUserEmailForAlert(ctx, item.UserID)
+		if err != nil {
+			item.Reason = "user lookup failed: " + err.Error()
+			failedItems = append(failedItems, item)
+			continue
+		}
+		if !found || email == "" {
+			if err := markAlertLogSkippedNoEmail(ctx, logID); err != nil {
+				item.Reason = "status update failed: " + err.Error()
+				failedItems = append(failedItems, item)
+				continue
+			}
+			item.Reason = "missing user email"
+			skippedItems = append(skippedItems, item)
+			continue
+		}
+		if err := markAlertLogEmailReady(ctx, logID, email); err != nil {
+			item.Reason = "status update failed: " + err.Error()
+			failedItems = append(failedItems, item)
+			continue
+		}
+		logItem["email"] = email
+		logItem["status"] = "email_ready"
+		emailReadyLogs = append(emailReadyLogs, logItem)
+	}
+
+	return emailReadyLogs, skippedItems, failedItems
+}
+
 func buildAlertSendResponse(ctx context.Context, logs []bson.M, config resendConfig, start time.Time) alertSendResponse {
 	sentItems := make([]alertSendItem, 0)
 	failedItems := make([]alertSendItem, 0)
@@ -420,16 +495,8 @@ func buildAlertSendResponse(ctx context.Context, logs []bson.M, config resendCon
 		sentItems = append(sentItems, item)
 	}
 
-	status := "success"
-	if len(failedItems) > 0 && len(sentItems)+len(skippedItems) > 0 {
-		status = "partial_success"
-	}
-	if len(logs) > 0 && len(failedItems) == len(logs) {
-		status = "failed"
-	}
-
 	return alertSendResponse{
-		Status:       status,
+		Status:       determineAlertSendStatus(len(logs), len(sentItems), len(skippedItems), len(failedItems)),
 		Selected:     len(logs),
 		Sent:         len(sentItems),
 		Failed:       len(failedItems),
@@ -442,9 +509,33 @@ func buildAlertSendResponse(ctx context.Context, logs []bson.M, config resendCon
 	}
 }
 
-func findEmailReadyAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
+func mergeAlertSendPreparation(response alertSendResponse, selected int, skippedItems []alertSendItem, failedItems []alertSendItem) alertSendResponse {
+	response.Selected = selected
+	response.SkippedItems = append(skippedItems, response.SkippedItems...)
+	response.FailedItems = append(failedItems, response.FailedItems...)
+	response.Skipped = len(response.SkippedItems)
+	response.Failed = len(response.FailedItems)
+	response.Status = determineAlertSendStatus(response.Selected, response.Sent, response.Skipped, response.Failed)
+	return response
+}
+
+func determineAlertSendStatus(selected int, sent int, skipped int, failed int) string {
+	if selected > 0 && failed == selected {
+		return "failed"
+	}
+	if failed > 0 {
+		return "partial_success"
+	}
+	return "success"
+}
+
+func findAlertLogsForEmail(ctx context.Context) ([]bson.M, error) {
 	collection := mongoClient.Database("fund_tracking").Collection("alert_logs")
-	filter := bson.M{"status": "email_ready"}
+	filter := bson.M{
+		"status": bson.M{
+			"$in": []string{"pending_email", "triggered", "email_ready"},
+		},
+	}
 	findOptions := options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}})
 
 	cursor, err := collection.Find(ctx, filter, findOptions)
