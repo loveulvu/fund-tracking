@@ -587,6 +587,7 @@ func main() {
 	http.HandleFunc("/api/auth/login", loginHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)
 	http.HandleFunc("/api/funds/enrich", enrichFundsHandler)
+	http.HandleFunc("/api/funds/import", authMiddleware(importFundHandler))
 	http.HandleFunc("/api/alerts/check", alertsCheckHandler)
 	http.HandleFunc("/api/alerts/send", alertsSendHandler)
 	http.HandleFunc("/api/auth/me", authMiddleware(meHandler))
