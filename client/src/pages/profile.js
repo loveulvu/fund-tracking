@@ -5,18 +5,38 @@ import api from '../lib/api';
 import styles from '../../styles/Dashboard.module.css';
 
 function formatPercent(value) {
+  if (value === null || value === undefined) return '暂无行情数据';
+  if (typeof value === 'string' && value.trim() === '') return '暂无行情数据';
+
   const number = Number(value);
   if (!Number.isFinite(number)) return '暂无行情数据';
   return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
 }
 
+function formatMarketValue(value) {
+  if (value === null || value === undefined) return '暂无行情数据';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '' || trimmed === '0') return '暂无行情数据';
+    return trimmed;
+  }
+  if (value === 0) return '暂无行情数据';
+  return value;
+}
+
 function getChangeClass(value) {
+  if (value === null || value === undefined) return styles.neutral;
+  if (typeof value === 'string' && value.trim() === '') return styles.neutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.neutral;
   return number > 0 ? styles.positive : styles.negative;
 }
 
 function getToneClass(value) {
+  if (value === null || value === undefined) return styles.toneNeutral;
+  if (typeof value === 'string' && value.trim() === '') return styles.toneNeutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
   return number > 0 ? styles.tonePositive : styles.toneNegative;
@@ -270,7 +290,7 @@ export default function Profile() {
                       <td>
                         {hasMarketData ? (
                           <>
-                            <strong>{fund.net_value ?? '暂无行情数据'}</strong>
+                            <strong>{formatMarketValue(fund.net_value)}</strong>
                             <small className={styles.mutedBlock}>{fund.net_value_date || '暂无日期'}</small>
                           </>
                         ) : (

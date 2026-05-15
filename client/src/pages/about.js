@@ -21,18 +21,27 @@ function formatLastUpdated(value) {
 }
 
 function formatPercent(value) {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string' && value.trim() === '') return '-';
+
   const number = Number(value);
   if (!Number.isFinite(number)) return '-';
   return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
 }
 
 function getChangeClass(value) {
+  if (value === null || value === undefined) return styles.neutral;
+  if (typeof value === 'string' && value.trim() === '') return styles.neutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.neutral;
   return number > 0 ? styles.positive : styles.negative;
 }
 
 function getToneClass(value) {
+  if (value === null || value === undefined) return styles.toneNeutral;
+  if (typeof value === 'string' && value.trim() === '') return styles.toneNeutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
   return number > 0 ? styles.tonePositive : styles.toneNegative;
@@ -186,6 +195,12 @@ export default function About() {
       try {
         setLoading(true);
         const response = await api.getFund(keyword);
+        if (response.status === 404) {
+          setFilteredFunds([]);
+          setError(null);
+          return;
+        }
+
         if (!response.ok) {
           throw new Error('基金数据请求失败');
         }
@@ -253,13 +268,13 @@ export default function About() {
     <DashboardShell
       activeHref="/about"
       noteTitle="基金列表"
-      noteText="搜索基金行情，并把常看的基金加入关注列表。"
+      noteText="搜索当前数据库已收录的基金，并把常看的基金加入关注列表。"
     >
       <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>基金</p>
           <h1>基金列表</h1>
-          <p>搜索实时基金列表，并管理关注状态。</p>
+          <p>搜索当前数据库已收录的基金，并管理关注状态。</p>
         </div>
         <div className={styles.heroMeta}>
           <span>最近更新</span>
@@ -306,8 +321,8 @@ export default function About() {
         ) : filteredFunds.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyMark} aria-hidden="true" />
-            <strong>没有找到基金</strong>
-            <p>请尝试基金名称或 6 位基金代码。</p>
+            <strong>当前数据库暂无匹配基金</strong>
+            <p>请尝试已收录的基金名称或 6 位基金代码。</p>
           </div>
         ) : (
           <div className={styles.tableWrap}>

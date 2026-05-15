@@ -24,23 +24,48 @@ const DETAIL_FIELDS = [
 ];
 
 function formatPercent(value) {
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string' && value.trim() === '') return '暂无数据';
+
   const number = Number(value);
   if (!Number.isFinite(number)) return '暂无数据';
   return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
 }
 
 function formatValue(value) {
-  if (value === null || value === undefined || value === '') return '暂无数据';
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '' || trimmed === '0') return '暂无数据';
+    return trimmed;
+  }
+  if (value === 0) return '暂无数据';
   return value;
 }
 
 function formatTimestamp(value) {
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
+    return '暂无数据';
+  }
+
   const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return '暂无数据';
-  return new Date(number * 1000).toLocaleString();
+  if (Number.isFinite(number) && number > 0) {
+    return new Date(number * 1000).toLocaleString();
+  }
+
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleString();
+  }
+
+  return '暂无数据';
 }
 
 function getChangeClass(value) {
+  if (value === null || value === undefined) return styles.neutral;
+  if (typeof value === 'string' && value.trim() === '') return styles.neutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.neutral;
   return number > 0 ? styles.positive : styles.negative;
@@ -71,28 +96,49 @@ export default function FundDetailPage() {
 
     return String(queryCode || getCodeFromPath(router.asPath)).trim();
   }, [router.asPath, router.query.code]);
-  const [funds, setFunds] = useState([]);
+  const [fund, setFund] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     if (!router.isReady && !code) return;
 
     let active = true;
 
-    async function fetchFunds() {
+    async function fetchFundDetail() {
       try {
         setLoading(true);
         setError('');
+        setNotFound(false);
 
-        const data = await api.getFunds();
+        const response = await api.getFund(code);
+
+        if (response.status === 404) {
+          if (active) {
+            setFund(null);
+            setNotFound(true);
+          }
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`接口返回 ${response.status}`);
+        }
+
+        const data = await response.json();
 
         if (active) {
-          setFunds(data);
+          if (data?.fund_code) {
+            setFund(data);
+          } else {
+            setFund(null);
+            setNotFound(true);
+          }
         }
       } catch (err) {
         if (active) {
-          setFunds([]);
+          setFund(null);
           setError(err.message || '基金数据加载失败');
         }
       } finally {
@@ -102,16 +148,12 @@ export default function FundDetailPage() {
       }
     }
 
-    fetchFunds();
+    fetchFundDetail();
 
     return () => {
       active = false;
     };
   }, [router.isReady, code]);
-
-  const fund = useMemo(() => {
-    return funds.find((item) => String(item.fund_code || '').trim() === code) || null;
-  }, [funds, code]);
 
   return (
     <main className={styles.fundPageShell}>
@@ -120,14 +162,14 @@ export default function FundDetailPage() {
           <Link href="/" className={styles.backLink}>
             返回 Dashboard
           </Link>
-          <span>数据源：GET /api/funds</span>
+          <span>数据源：GET /api/fund/{code}</span>
         </header>
 
         {loading ? (
           <div className={styles.fundPageState}>正在加载基金详情</div>
         ) : error ? (
           <div className={styles.fundPageState}>接口异常：{error}</div>
-        ) : !fund ? (
+        ) : notFound || !fund ? (
           <div className={styles.fundPageState}>未找到该基金</div>
         ) : (
           <>
@@ -172,7 +214,7 @@ export default function FundDetailPage() {
                 <div className={styles.panelHeader}>
                   <div>
                     <h2>基金详情</h2>
-                    <p>全部字段来自 /api/funds</p>
+                    <p>全部字段来自 /api/fund/{code}</p>
                   </div>
                 </div>
                 <dl className={styles.detailList}>
@@ -199,8 +241,8 @@ export default function FundDetailPage() {
                 </article>
                 <article className={styles.sourcePanel}>
                   <span>Data source</span>
-                  <strong>GET /api/funds</strong>
-                  <p>本页从基金列表接口中按 fund_code 匹配当前基金，没有新增接口或 mock 数据。</p>
+                  <strong>GET /api/fund/{code}</strong>
+                  <p>本页直接读取单只基金详情；如果当前数据库未收录该代码，会显示未找到该基金。</p>
                 </article>
               </aside>
             </section>

@@ -29,29 +29,53 @@ const DETAIL_FIELDS = [
 ];
 
 function formatPercent(value) {
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string' && value.trim() === '') return '暂无数据';
+
   const number = Number(value);
   if (!Number.isFinite(number)) return '暂无数据';
   return `${number > 0 ? '+' : ''}${number.toFixed(2)}%`;
 }
 
 function formatValue(value) {
-  if (value === null || value === undefined || value === '') return '暂无数据';
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '' || trimmed === '0') return '暂无数据';
+    return trimmed;
+  }
+  if (value === 0) return '暂无数据';
   return value;
 }
 
 function formatTimestamp(value) {
+  if (value === null || value === undefined) return '暂无数据';
+  if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
+    return '暂无数据';
+  }
+
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return '暂无数据';
   return new Date(number * 1000).toLocaleString();
 }
 
+function hasNumericValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string' && value.trim() === '') return false;
+  return Number.isFinite(Number(value));
+}
+
 function getChangeClass(value) {
+  if (!hasNumericValue(value)) return styles.neutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.neutral;
   return number > 0 ? styles.positive : styles.negative;
 }
 
 function getToneClass(value) {
+  if (!hasNumericValue(value)) return styles.toneNeutral;
+
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return styles.toneNeutral;
   return number > 0 ? styles.tonePositive : styles.toneNegative;
@@ -209,20 +233,21 @@ export default function Home() {
 
   const averageDayChange = useMemo(() => {
     const values = funds
-      .map((fund) => Number(fund.day_growth))
-      .filter((value) => Number.isFinite(value));
+      .map((fund) => fund.day_growth)
+      .filter(hasNumericValue)
+      .map((value) => Number(value));
 
     if (values.length === 0) return null;
     return values.reduce((sum, value) => sum + value, 0) / values.length;
   }, [funds]);
 
   const positiveCount = useMemo(() => {
-    return funds.filter((fund) => Number(fund.day_growth) > 0).length;
+    return funds.filter((fund) => hasNumericValue(fund.day_growth) && Number(fund.day_growth) > 0).length;
   }, [funds]);
 
   const topDailyFunds = useMemo(() => {
     return [...funds]
-      .filter((fund) => Number.isFinite(Number(fund.day_growth)))
+      .filter((fund) => hasNumericValue(fund.day_growth))
       .sort((a, b) => Number(b.day_growth) - Number(a.day_growth))
       .slice(0, 4);
   }, [funds]);
