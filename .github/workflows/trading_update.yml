@@ -9,18 +9,23 @@ on:
 jobs:
   trigger-update:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Validate required config
         env:
           BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
         run: |
           if [ -z "$BACKEND_BASE_URL" ]; then
             echo "BACKEND_BASE_URL secret is required"
             exit 1
           fi
+          if [ -z "$UPDATE_API_KEY" ]; then
+            echo "UPDATE_API_KEY secret is required"
+            exit 1
+          fi
 
-      - name: Trigger update endpoint
+      - name: Trigger fund update
         env:
           BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
           UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
@@ -29,43 +34,101 @@ jobs:
           URL="${BACKEND_BASE_URL%/}/api/update"
           echo "Triggering: $URL"
 
-          if [ -n "${UPDATE_API_KEY:-}" ]; then
-            curl --fail --show-error --silent \
-              --max-time 120 \
-              --retry 2 --retry-delay 3 \
-              -H "X-Update-Key: ${UPDATE_API_KEY}" \
-              -o update-response.json \
-              "$URL"
-          else
-            curl --fail --show-error --silent \
-              --max-time 120 \
-              --retry 2 --retry-delay 3 \
-              -o update-response.json \
-              "$URL"
-          fi
+          curl --fail --show-error --silent \
+            --max-time 120 \
+            --retry 2 --retry-delay 3 \
+            -H "X-Update-Key: ${UPDATE_API_KEY}" \
+            -o update-response.json \
+            "$URL"
 
-      - name: Summarize update response
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("update-response.json").read_text())
+          status = data.get("status")
+          if status not in {"success", "partial_success"}:
+              raise SystemExit(f"/api/update returned status={status}")
+          PY
+
+      - name: Check alert thresholds
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
+        run: |
+          set -euo pipefail
+          URL="${BACKEND_BASE_URL%/}/api/alerts/check"
+          echo "Triggering: $URL"
+
+          curl --fail --show-error --silent \
+            --max-time 120 \
+            --retry 2 --retry-delay 3 \
+            -H "X-Update-Key: ${UPDATE_API_KEY}" \
+            -o alerts-check-response.json \
+            "$URL"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("alerts-check-response.json").read_text())
+          status = data.get("status")
+          if status not in {"success", "partial_success"}:
+              raise SystemExit(f"/api/alerts/check returned status={status}")
+          PY
+
+      - name: Send alert emails
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
+        run: |
+          set -euo pipefail
+          URL="${BACKEND_BASE_URL%/}/api/alerts/send"
+          echo "Triggering: $URL"
+
+          curl --fail --show-error --silent \
+            --max-time 120 \
+            --retry 2 --retry-delay 3 \
+            -X POST \
+            -H "X-Update-Key: ${UPDATE_API_KEY}" \
+            -o alerts-send-response.json \
+            "$URL"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("alerts-send-response.json").read_text())
+          status = data.get("status")
+          if status != "success":
+              raise SystemExit(f"/api/alerts/send returned status={status}")
+          PY
+
+      - name: Summarize responses
         if: always()
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
 
-          path = Path("update-response.json")
-          if not path.exists():
-              print("update-response.json was not created")
-              raise SystemExit(0)
+          summaries = [
+              ("update", Path("update-response.json"), ["status", "total", "updated", "failed_codes"]),
+              ("alerts_check", Path("alerts-check-response.json"), ["status", "checked", "triggered", "logged", "duplicate", "failed"]),
+              ("alerts_send", Path("alerts-send-response.json"), ["status", "selected", "sent", "failed", "skipped", "dry_run"]),
+          ]
 
-          try:
-              data = json.loads(path.read_text())
-          except Exception as exc:
-              print(f"Failed to parse update-response.json: {exc}")
-              raise SystemExit(0)
-
-          print(f"status={data.get('status')}")
-          print(f"total={data.get('total')}")
-          print(f"updated={data.get('updated')}")
-          print(f"failed_codes={data.get('failed_codes')}")
+          for label, path, keys in summaries:
+              print(f"[{label}]")
+              if not path.exists():
+                  print(f"{path} was not created")
+                  continue
+              try:
+                  data = json.loads(path.read_text())
+              except Exception as exc:
+                  print(f"Failed to parse {path}: {exc}")
+                  continue
+              for key in keys:
+                  print(f"{key}={data.get(key)}")
           PY
 
       - name: Upload update response
@@ -74,4 +137,20 @@ jobs:
         with:
           name: update-response-${{ github.run_number }}
           path: update-response.json
+          retention-days: 7
+
+      - name: Upload alerts check response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alerts-check-response-${{ github.run_number }}
+          path: alerts-check-response.json
+          retention-days: 7
+
+      - name: Upload alerts send response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alerts-send-response-${{ github.run_number }}
+          path: alerts-send-response.json
           retention-days: 7
