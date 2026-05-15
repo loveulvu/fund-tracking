@@ -343,7 +343,7 @@ func requireUpdateAPIKey(r *http.Request) bool {
 func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Update-Key")
 }
 func initMongo() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -586,6 +586,7 @@ func main() {
 	http.HandleFunc("/api/auth/register", registerHandler)
 	http.HandleFunc("/api/auth/login", loginHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)
+	http.HandleFunc("/api/funds/enrich", enrichFundsHandler)
 	http.HandleFunc("/api/alerts/check", alertsCheckHandler)
 	http.HandleFunc("/api/alerts/send", alertsSendHandler)
 	http.HandleFunc("/api/auth/me", authMiddleware(meHandler))
