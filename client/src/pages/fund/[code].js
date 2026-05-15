@@ -44,22 +44,29 @@ function formatValue(value) {
 }
 
 function formatTimestamp(value) {
-  if (value === null || value === undefined) return '暂无数据';
+  const timestampMs = parseTimestampMs(value);
+  if (timestampMs === null) return '暂无数据';
+  return new Date(timestampMs).toLocaleString();
+}
+
+function parseTimestampMs(value) {
+  if (value === null || value === undefined) return null;
   if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
-    return '暂无数据';
+    return null;
   }
+  if (value === 0) return null;
 
   const number = Number(value);
   if (Number.isFinite(number) && number > 0) {
-    return new Date(number * 1000).toLocaleString();
+    return number < 1000000000000 ? number * 1000 : number;
   }
 
   const date = new Date(value);
   if (!Number.isNaN(date.getTime())) {
-    return date.toLocaleString();
+    return date.getTime();
   }
 
-  return '暂无数据';
+  return null;
 }
 
 function getChangeClass(value) {

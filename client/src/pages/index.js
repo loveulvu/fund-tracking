@@ -49,14 +49,31 @@ function formatValue(value) {
 }
 
 function formatTimestamp(value) {
-  if (value === null || value === undefined) return '暂无数据';
+  const timestampMs = parseTimestampMs(value);
+  if (timestampMs === null) return '暂无数据';
+  return new Date(timestampMs).toLocaleString();
+}
+
+function parseTimestampMs(value) {
+  if (value === null || value === undefined) return null;
   if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
-    return '暂无数据';
+    return null;
+  }
+  if (value === 0) {
+    return null;
   }
 
-  const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return '暂无数据';
-  return new Date(number * 1000).toLocaleString();
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric < 1000000000000 ? numeric * 1000 : numeric;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.getTime();
 }
 
 function hasNumericValue(value) {
@@ -226,8 +243,8 @@ export default function Home() {
 
   const latestUpdate = useMemo(() => {
     return funds.reduce((latest, fund) => {
-      const value = Number(fund.update_time || 0);
-      return value > latest ? value : latest;
+      const value = parseTimestampMs(fund.update_time);
+      return value !== null && value > latest ? value : latest;
     }, 0);
   }, [funds]);
 

@@ -43,10 +43,27 @@ function getToneClass(value) {
 }
 
 function formatDate(value) {
-  if (!value) return '-';
+  const timestampMs = parseTimestampMs(value);
+  if (timestampMs === null) return '-';
+  return new Date(timestampMs).toLocaleDateString();
+}
+
+function parseTimestampMs(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
+    return null;
+  }
+  if (value === 0) return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric < 1000000000000 ? numeric * 1000 : numeric;
+  }
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.getTime();
 }
 
 export default function Profile() {

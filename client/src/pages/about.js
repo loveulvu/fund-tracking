@@ -5,19 +5,28 @@ import api from '../lib/api';
 import styles from '../../styles/Dashboard.module.css';
 
 function formatLastUpdated(value) {
-  if (!value) return 'Unknown';
+  const timestampMs = parseTimestampMs(value);
+  if (timestampMs === null) return '暂无数据';
+
+  return new Date(timestampMs).toLocaleString();
+}
+
+function parseTimestampMs(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && (value.trim() === '' || value.trim() === '0')) {
+    return null;
+  }
+  if (value === 0) return null;
 
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) {
-    return new Date(numeric * 1000).toLocaleString();
+    return numeric < 1000000000000 ? numeric * 1000 : numeric;
   }
 
   const date = new Date(value);
-  if (!Number.isNaN(date.getTime())) {
-    return date.toLocaleString();
-  }
+  if (Number.isNaN(date.getTime())) return null;
 
-  return String(value);
+  return date.getTime();
 }
 
 function formatPercent(value) {
@@ -56,7 +65,7 @@ export default function About() {
   const [user, setUser] = useState(null);
   const [watchlist, setWatchlist] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState({});
-  const [lastUpdatedText, setLastUpdatedText] = useState('Unknown');
+  const [lastUpdatedText, setLastUpdatedText] = useState('暂无数据');
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -156,13 +165,12 @@ export default function About() {
           setFilteredFunds(data);
           if (data.length > 0) {
             const latest = data.reduce((current, item) => {
-              const next = item?.update_time;
-              if (!current) return next;
-              return String(next || '') > String(current || '') ? next : current;
-            }, '');
+              const next = parseTimestampMs(item?.update_time);
+              return next !== null && next > current ? next : current;
+            }, 0);
             setLastUpdatedText(formatLastUpdated(latest));
           } else {
-            setLastUpdatedText('Unknown');
+            setLastUpdatedText('暂无数据');
           }
         } else {
           console.error('Invalid data format:', data);
