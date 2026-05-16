@@ -1,6 +1,6 @@
 # Fund Tracking
 
-Fund Tracking 是一个基金跟踪系统，支持基金数据展示、已收录基金搜索、基金详情、用户注册登录、watchlist 关注列表、阈值提醒、未收录 6 位基金代码导入，以及工作日自动更新基金数据和发送提醒邮件。
+Fund Tracking 是一个基金跟踪系统，支持基金数据展示、已收录基金搜索、基金详情、用户注册登录、注册邮箱 6 位验证码、watchlist 关注列表、阈值提醒、未收录 6 位基金代码导入、基金元数据和阶段收益补全，以及工作日自动更新基金数据和发送提醒邮件。
 
 ## 在线地址
 
@@ -64,14 +64,16 @@ Deployment and automation:
 2. 基金详情展示
 3. 已收录基金搜索
 4. 用户注册和登录
-5. JWT 认证
-6. Watchlist 添加、删除和阈值修改
-7. 未收录 6 位基金代码手动导入
-8. 基金元数据补全，包括类型、公司、经理、规模
-9. `/api/update` 自动更新基金基础行情
-10. `/api/alerts/check` 检测 watchlist 阈值触发
-11. `/api/alerts/send` 通过 Resend 发送提醒邮件
-12. GitHub Actions 工作日定时执行 update/check/send
+5. 注册邮箱 6 位验证码
+6. JWT 认证
+7. Watchlist 添加、删除和阈值修改
+8. 未收录 6 位基金代码手动导入
+9. 基金元数据补全，包括类型、公司、经理、规模
+10. 基金阶段收益补全，包括近 1 周、近 1 月、近 3 月、近 6 月、近 1 年、近 3 年
+11. `/api/update` 自动更新基金基础行情
+12. `/api/alerts/check` 检测 watchlist 阈值触发
+13. `/api/alerts/send` 通过 Resend 发送提醒邮件
+14. GitHub Actions 工作日定时执行 update/check/send
 
 ## Go 后端重构说明
 
@@ -85,8 +87,11 @@ GET    /api/fund/{fundCode}
 GET    /api/search_proxy?query=...
 POST   /api/funds/import
 POST   /api/funds/enrich
+POST   /api/funds/performance
 POST   /api/auth/register
 POST   /api/auth/login
+POST   /api/auth/verify-email-code
+POST   /api/auth/resend-email-code
 GET    /api/auth/me
 GET    /api/watchlist
 POST   /api/watchlist
@@ -98,6 +103,32 @@ POST   /api/alerts/send
 ```
 
 迁移原则是保持前端 API 路径和 JSON 结构兼容，按模块增量替换旧后端，而不是一次性重写整套系统。
+
+旧 Flask / Python 后端已经归档到 `archive/legacy-python/`，不再是当前线上主链路。
+
+## 注册邮箱验证码
+
+新注册用户需要完成邮箱 6 位数字验证码验证后才能登录。
+
+验证码规则：
+
+- 6 位数字验证码
+- 10 分钟有效
+- 最多错误 5 次
+- 60 秒重发冷却
+- 数据库只保存 HMAC-SHA256 hash，不保存验证码明文
+- 老用户如果缺少 `emailVerified` 字段，登录时按已验证处理，避免历史账号被突然阻断
+
+相关接口：
+
+```text
+POST /api/auth/register
+POST /api/auth/verify-email-code
+POST /api/auth/resend-email-code
+POST /api/auth/login
+```
+
+验证码邮件使用 Resend 发送，但实现和基金提醒邮件逻辑隔离，避免注册邮件失败影响提醒链路。
 
 ## 数据更新机制
 
@@ -142,6 +173,42 @@ skipped_codes
 
 - `000001` 可以成功导入，基础行情和元数据可读
 - `000002` 当前基础行情数据源不支持或返回失败，属于预期失败，不会写入坏数据
+
+## 阶段收益补全
+
+`POST /api/funds/performance` 用于补全阶段收益字段，受 `X-Update-Key` 保护。
+
+当前补全字段：
+
+```text
+week_growth
+month_growth
+three_month_growth
+six_month_growth
+year_growth
+three_year_growth
+performanceUpdatedAt
+```
+
+字段映射来自 Eastmoney FundMNPeriodIncrease：
+
+```text
+Z  -> week_growth
+Y  -> month_growth
+3Y -> three_month_growth
+6Y -> six_month_growth
+1N -> year_growth
+3N -> three_year_growth
+```
+
+写入规则：
+
+- 只写有效数字字段和 `performanceUpdatedAt`
+- 缺失、空字符串、`--`、解析失败都不写入
+- 真实字符串 `"0"` 才会作为 0 写入
+- 不 upsert 新基金
+- 不修改基础行情字段
+- 暂未接入 GitHub Actions，避免阶段收益补全失败影响稳定的 update/check/send 提醒链路
 
 ## 阈值提醒和邮件
 
@@ -274,26 +341,26 @@ npm run dev
 4. `/api/update` 受 `UPDATE_API_KEY` 保护。
 5. `/api/funds/import` 可导入有效的未收录 6 位基金代码。
 6. `/api/funds/enrich` 可补全基金类型、公司、经理和规模。
-7. GitHub Actions 可按 update/check/send 顺序执行。
-8. Resend 邮件提醒链路已完成真实闭环。
-9. 当前旧日期数据问题已修复。
+7. `/api/funds/performance` 可补全阶段收益字段，且缺失值不会写成 0。
+8. 注册邮箱 6 位验证码前端真实收信验证通过。
+9. GitHub Actions 可按 update/check/send 顺序执行。
+10. Resend 邮件提醒链路已完成真实闭环。
+11. 当前旧日期数据问题已修复。
 
 ## 当前限制和后续计划
 
 当前不支持或未完成：
 
-1. 阶段收益字段暂未统一接入可靠数据源，缺失时显示“暂无数据”。
+1. 阶段收益接口已实现，但暂未接入 GitHub Actions，仍需长期观察外部接口稳定性。
 2. 持仓金额、资产配置和收益曲线未实现。
 3. 不支持真实交易记录系统。
-4. 注册验证邮件暂未恢复。
-5. 不支持全市场模糊搜索自动外部导入。
-6. Render Free Web Service 可能冷启动。
-7. 旧 Flask 代码仍需后续归档或清理。
+4. 不支持全市场模糊搜索自动外部导入。
+5. Render Free Web Service 可能冷启动。
+6. 旧 Flask / Python 代码已归档到 `archive/legacy-python/`，仅作为迁移参考。
 
 后续计划：
 
-1. 继续清理旧 Flask 迁移痕迹。
-2. 评估阶段收益字段的数据源可靠性。
-3. 设计真实持仓和收益曲线的数据模型。
-4. 评估注册验证邮件恢复方案。
-5. 继续优化移动端 UI。
+1. 设计从 `go-backend-api-version` 合并到 `main` 的 PR 和部署验证策略。
+2. 设计真实持仓和收益曲线的数据模型。
+3. 评估是否将 `/api/funds/performance` 以非阻断方式接入 GitHub Actions。
+4. 继续优化移动端 UI。
