@@ -77,6 +77,18 @@ export const api = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
+  }),
+
+  verifyEmailCode: (email, code) => fetch(goApiUrl('/api/auth/verify-email-code'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code })
+  }),
+
+  resendEmailCode: (email) => fetch(goApiUrl('/api/auth/resend-email-code'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
   })
 };
 

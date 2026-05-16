@@ -589,6 +589,8 @@ func main() {
 	http.HandleFunc("/api/version", versionHandler)
 	http.HandleFunc("/api/auth/register", registerHandler)
 	http.HandleFunc("/api/auth/login", loginHandler)
+	http.HandleFunc("/api/auth/verify-email-code", verifyEmailCodeHandler)
+	http.HandleFunc("/api/auth/resend-email-code", resendEmailCodeHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)
 	http.HandleFunc("/api/funds/enrich", enrichFundsHandler)
 	http.HandleFunc("/api/funds/performance", performanceFundsHandler)
