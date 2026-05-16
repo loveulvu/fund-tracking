@@ -1,17 +1,41 @@
-.badge {
+.wrapper {
   position: fixed;
   right: 12px;
   bottom: 12px;
   z-index: 9999;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.toggle {
+  min-height: 30px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #475569;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.toggle:hover {
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.badge {
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.4;
-  color: #f4f4f5;
-  background: rgba(15, 23, 42, 0.82);
-  border: 1px solid rgba(244, 244, 245, 0.2);
+  color: #334155;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   backdrop-filter: blur(4px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
 }
 
 .line {

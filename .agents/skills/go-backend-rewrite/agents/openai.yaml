@@ -1,0 +1,3 @@
+interface:
+  display_name: "Go Backend Rewrite"
+  short_description: "Migrate one backend API at a time to Go with frontend compatibility"
