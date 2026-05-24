@@ -76,7 +76,7 @@ func importFundByCode(ctx context.Context, fundCode string) (importFundResponse,
 		return buildExistingImportResponse(existingFund), http.StatusOK, nil
 	}
 
-	fund, err := fetchFundBasicInfo(fundCode)
+	fund, err := fetchFundBasicInfo(ctx, fundCode)
 	if err != nil {
 		return importFundResponse{}, http.StatusBadGateway, err
 	}
@@ -85,7 +85,7 @@ func importFundByCode(ctx context.Context, fundCode string) (importFundResponse,
 	}
 
 	fund.IsSeed = false
-	if err := upsertFundBasicInfo(fund); err != nil {
+	if err := upsertFundBasicInfo(ctx, fund); err != nil {
 		return importFundResponse{}, http.StatusInternalServerError, err
 	}
 

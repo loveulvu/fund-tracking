@@ -66,10 +66,10 @@ func parseFloatRequired(value string, fieldName string) (float64, error) {
 	}
 	return parsed, nil
 }
-func fetchFundBasicInfo(fundCode string) (Fund, error) {
+func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	url := fmt.Sprintf("https://fundgz.1234567.com.cn/js/%s.js", fundCode)
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Fund{}, err
 	}
@@ -138,9 +138,8 @@ func validateFetchedFund(requestedCode string, fund Fund) error {
 	}
 	return nil
 }
-func upsertFundBasicInfo(fund Fund) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func upsertFundBasicInfo(ctx context.Context, fund Fund) error {
+
 	collection := getFundCollection()
 	filter := bson.M{
 		"fund_code": fund.FundCode,
@@ -253,7 +252,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	updatedCodes := make([]string, 0, len(targetCodes))
 	failedCodes := make([]string, 0)
 	for _, fundCode := range targetCodes {
-		fund, err := fetchFundBasicInfo(fundCode)
+		fund, err := fetchFundBasicInfo(ctx, fundCode)
 		if err != nil {
 			failed = append(failed, fundCode+":fetch failed:"+err.Error())
 			failedCodes = append(failedCodes, fundCode)
@@ -264,7 +263,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 			failedCodes = append(failedCodes, fundCode)
 			continue
 		}
-		if err := upsertFundBasicInfo(fund); err != nil {
+		if err := upsertFundBasicInfo(ctx, fund); err != nil {
 			failed = append(failed, fundCode+":upsert failed:"+err.Error())
 			failedCodes = append(failedCodes, fundCode)
 			continue
