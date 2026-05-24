@@ -298,10 +298,8 @@ func requireUpdateAPIKey(r *http.Request) bool {
 	if expectedKey == "" {
 		return false
 	}
+
 	providedKey := strings.TrimSpace(r.Header.Get("X-Update-Key"))
-	if providedKey == "" {
-		providedKey = strings.TrimSpace(r.URL.Query().Get("key"))
-	}
 	return providedKey != "" && providedKey == expectedKey
 }
 func configuredUpdateAPIKey() string {
