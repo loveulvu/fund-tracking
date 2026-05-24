@@ -41,23 +41,20 @@ func TestRequireUpdateAPIKeyHeaderFailsClosedWhenMissing(t *testing.T) {
 	}
 }
 
-func TestRequireUpdateAPIKeyAcceptsConfiguredHeaderAndQuery(t *testing.T) {
+func TestRequireUpdateAPIKeyAcceptsConfiguredHeaderOnly(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "test-update-key")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/update", nil)
-	request.Header.Set("X-Update-Key", "test-update-key")
-	if !requireUpdateAPIKey(request) {
+	req := httptest.NewRequest(http.MethodGet, "/api/update", nil)
+	req.Header.Set("X-Update-Key", "test-update-key")
+
+	if !requireUpdateAPIKey(req) {
 		t.Fatal("expected matching header key to pass")
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/api/update?key=test-update-key", nil)
-	if !requireUpdateAPIKey(request) {
-		t.Fatal("expected matching query key to pass")
-	}
+	queryReq := httptest.NewRequest(http.MethodGet, "/api/update?key=test-update-key", nil)
 
-	request = httptest.NewRequest(http.MethodGet, "/api/update?key=wrong-key", nil)
-	if requireUpdateAPIKey(request) {
-		t.Fatal("expected wrong query key to be rejected")
+	if requireUpdateAPIKey(queryReq) {
+		t.Fatal("expected matching query key to fail")
 	}
 }
 
