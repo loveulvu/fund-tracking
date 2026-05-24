@@ -1,0 +1,17 @@
+﻿.git
+.github
+
+.env
+.env.*
+*.log
+
+tmp/
+bin/
+dist/
+
+*.test
+*.exe
+coverage.out
+
+.DS_Store
+Thumbs.db
