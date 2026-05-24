@@ -47,6 +47,12 @@ type updateFundsResponse struct {
 	FailedCodes  []string `json:"failed_codes"`
 	SkippedCodes []string `json:"skipped_codes"`
 }
+type updateFundResult struct {
+	Code  string
+	OK    bool
+	Stage string
+	Err   error
+}
 
 func parseFloatOrZero(value string) float64 {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
@@ -251,26 +257,16 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	failed := make([]string, 0)
 	updatedCodes := make([]string, 0, len(targetCodes))
 	failedCodes := make([]string, 0)
-	for _, fundCode := range targetCodes {
-		fund, err := fetchFundBasicInfo(ctx, fundCode)
-		if err != nil {
-			failed = append(failed, fundCode+":fetch failed:"+err.Error())
-			failedCodes = append(failedCodes, fundCode)
+	results := runUpdateWorkers(ctx, targetCodes, 3)
+	for _, result := range results {
+		if !result.OK {
+			failed = append(failed, result.Code+":"+result.Stage+" failed:"+result.Err.Error())
+			failedCodes = append(failedCodes, result.Code)
 			continue
 		}
-		if err := validateFetchedFund(fundCode, fund); err != nil {
-			failed = append(failed, fundCode+":validation failed:"+err.Error())
-			failedCodes = append(failedCodes, fundCode)
-			continue
-		}
-		if err := upsertFundBasicInfo(ctx, fund); err != nil {
-			failed = append(failed, fundCode+":upsert failed:"+err.Error())
-			failedCodes = append(failedCodes, fundCode)
-			continue
-		}
+
 		updated++
-		updatedCodes = append(updatedCodes, fundCode)
-		time.Sleep(300 * time.Millisecond)
+		updatedCodes = append(updatedCodes, result.Code)
 	}
 	status := "success"
 	if len(failed) > 0 && updated > 0 {
@@ -310,4 +306,75 @@ func requireUpdateAPIKey(r *http.Request) bool {
 }
 func configuredUpdateAPIKey() string {
 	return strings.TrimSpace(os.Getenv("UPDATE_API_KEY"))
+}
+func updateSingleFund(ctx context.Context, fundCode string) updateFundResult {
+	fund, err := fetchFundBasicInfo(ctx, fundCode)
+	if err != nil {
+		return updateFundResult{
+			Code:  fundCode,
+			OK:    false,
+			Stage: "fetch",
+			Err:   err,
+		}
+	}
+	if err := validateFetchedFund(fundCode, fund); err != nil {
+		return updateFundResult{
+			Code:  fundCode,
+			OK:    false,
+			Stage: "validate",
+			Err:   err,
+		}
+	}
+	if err := upsertFundBasicInfo(ctx, fund); err != nil {
+		return updateFundResult{
+			Code:  fundCode,
+			OK:    false,
+			Stage: "upsert",
+			Err:   err,
+		}
+	}
+	return updateFundResult{
+		Code: fundCode,
+		OK:   true,
+	}
+}
+func runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int) []updateFundResult {
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+	if len(targetCodes) == 0 {
+		return nil
+	}
+	if workerCount > len(targetCodes) {
+		workerCount = len(targetCodes)
+	}
+	jobs := make(chan string, workerCount)
+	results := make(chan updateFundResult, len(targetCodes))
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for fundCode := range jobs {
+				results <- updateSingleFund(ctx, fundCode)
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, fundCode := range targetCodes {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- fundCode:
+			}
+		}
+	}()
+	var updateResults []updateFundResult
+	for i := 0; i < len(targetCodes); i++ {
+		select {
+		case <-ctx.Done():
+			return updateResults
+		case result := <-results:
+			updateResults = append(updateResults, result)
+		}
+	}
+	return updateResults
 }
