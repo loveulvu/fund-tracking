@@ -258,7 +258,10 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	updatedCodes := make([]string, 0, len(targetCodes))
 	failedCodes := make([]string, 0)
 	results := runUpdateWorkers(ctx, targetCodes, 3)
+	completedCodes := make(map[string]bool)
 	for _, result := range results {
+		completedCodes[result.Code] = true
+
 		if !result.OK {
 			failed = append(failed, result.Code+":"+result.Stage+" failed:"+result.Err.Error())
 			failedCodes = append(failedCodes, result.Code)
@@ -267,6 +270,18 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 		updated++
 		updatedCodes = append(updatedCodes, result.Code)
+	}
+
+	missingReason := "no result returned"
+	if ctx.Err() != nil {
+		missingReason = ctx.Err().Error()
+	}
+
+	for _, fundCode := range targetCodes {
+		if !completedCodes[fundCode] {
+			failed = append(failed, fundCode+":timeout failed:"+missingReason)
+			failedCodes = append(failedCodes, fundCode)
+		}
 	}
 	status := "success"
 	if len(failed) > 0 && updated > 0 {
