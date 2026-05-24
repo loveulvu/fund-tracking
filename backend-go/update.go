@@ -240,7 +240,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
 	if err != nil {
