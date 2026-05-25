@@ -150,7 +150,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	if query == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "fund code is required")
 		return
 	}
 	funds, err := searchFundsInMongoDB(query)
