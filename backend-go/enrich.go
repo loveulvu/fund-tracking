@@ -54,12 +54,12 @@ func enrichFundsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	if !requireUpdateAPIKeyHeader(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 
@@ -68,7 +68,7 @@ func enrichFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
 	if err != nil {
-		http.Error(w, "Failed to build enrich fund codes", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
@@ -76,7 +76,7 @@ func enrichFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 }

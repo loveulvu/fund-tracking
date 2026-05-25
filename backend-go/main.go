@@ -145,22 +145,22 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	if query == "" {
-		http.Error(w, "Search query is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
 		return
 	}
 	funds, err := searchFundsInMongoDB(query)
 	if err != nil {
-		http.Error(w, "Failed to search funds", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(funds); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 }
@@ -171,17 +171,17 @@ func fundsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	funds, err := loadFundsFromMongoDB()
 	if err != nil {
-		http.Error(w, "Failed to load funds", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(funds); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 }
@@ -192,26 +192,26 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	code := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/fund/"), "/")
 	if code == "" {
-		http.Error(w, "Fund code is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
 		return
 	}
 	fund, ok, err := findFundByCodeInMongoDB(code)
 	if err != nil {
-		http.Error(w, "Failed to find fund", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	if !ok {
-		http.Error(w, "Fund not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "not_found", "fund not found")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(fund); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
@@ -225,7 +225,7 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -259,17 +259,17 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	if mongoClient == nil {
-		http.Error(w, "MongoDB client not initialized", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if err := mongoClient.Ping(ctx, nil); err != nil {
-		http.Error(w, "Failed to ping MongoDB: "+err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
