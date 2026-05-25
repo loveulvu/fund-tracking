@@ -31,6 +31,14 @@ export const api = {
 
   updateFunds: () => fetch(goApiUrl('/api/update')),
 
+  startAsyncUpdate: () =>
+    fetch('/api/update/async', {
+      method: 'POST',
+    }),
+
+  getUpdateTask: (taskId) =>
+    fetch(`/api/update/tasks/${encodeURIComponent(taskId)}`),
+
   getWatchlist: (token) => fetch(goApiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
   }),

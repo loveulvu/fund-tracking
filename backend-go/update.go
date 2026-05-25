@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -52,6 +53,31 @@ type updateFundResult struct {
 	OK    bool
 	Stage string
 	Err   error
+}
+type updateTaskStatus string
+
+const (
+	updateTaskPending updateTaskStatus = "pending"
+	updateTaskRunning updateTaskStatus = "running"
+	updateTaskSuccess updateTaskStatus = "success"
+	updateTaskFailed  updateTaskStatus = "failed"
+)
+
+type updateTaskCreateResponse struct {
+	Status string `json:"status"`
+	TaskID string `json:"task_id"`
+}
+
+var updateTasks = make(map[string]*updateTask)
+var updateTasksMu sync.Mutex
+
+type updateTask struct {
+	ID         string               `json:"id"`
+	Status     updateTaskStatus     `json:"status"`
+	StartedAt  time.Time            `json:"started_at"`
+	FinishedAt *time.Time           `json:"finished_at,omitempty"`
+	Response   *updateFundsResponse `json:"response,omitempty"`
+	Error      string               `json:"error,omitempty"`
 }
 
 func parseFloatOrZero(value string) float64 {
@@ -231,33 +257,32 @@ func buildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
 	}
 	return codes, skipped, nil
 }
-func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
+
+func executeFundUpdate(ctx context.Context) updateFundsResponse {
 	start := time.Now()
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !requireUpdateAPIKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
+
 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
 	if err != nil {
-		http.Error(w, "Failed to build update fund codes", http.StatusInternalServerError)
-		return
+		return updateFundsResponse{
+			Status:       "failed",
+			Updated:      0,
+			Failed:       []string{"build update fund codes failed: " + err.Error()},
+			Total:        0,
+			DurationMs:   time.Since(start).Milliseconds(),
+			TargetCodes:  []string{},
+			UpdatedCodes: []string{},
+			FailedCodes:  []string{},
+			SkippedCodes: skippedCodes,
+		}
 	}
+
 	updated := 0
 	failed := make([]string, 0)
 	updatedCodes := make([]string, 0, len(targetCodes))
 	failedCodes := make([]string, 0)
+
 	results := runUpdateWorkers(ctx, targetCodes, 3)
+
 	completedCodes := make(map[string]bool)
 	for _, result := range results {
 		completedCodes[result.Code] = true
@@ -283,6 +308,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 			failedCodes = append(failedCodes, fundCode)
 		}
 	}
+
 	status := "success"
 	if len(failed) > 0 && updated > 0 {
 		status = "partial_success"
@@ -291,9 +317,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 		status = "failed"
 	}
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-
-	if err := json.NewEncoder(w).Encode(updateFundsResponse{
+	return updateFundsResponse{
 		Status:       status,
 		Updated:      updated,
 		Failed:       failed,
@@ -303,9 +327,6 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 		UpdatedCodes: updatedCodes,
 		FailedCodes:  failedCodes,
 		SkippedCodes: skippedCodes,
-	}); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
 	}
 }
 func requireUpdateAPIKey(r *http.Request) bool {
@@ -390,4 +411,120 @@ func runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int
 		}
 	}
 	return updateResults
+}
+func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !requireUpdateAPIKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	response := executeFundUpdate(ctx)
+
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireUpdateAPIKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
+	task := &updateTask{
+		ID:        taskID,
+		Status:    updateTaskPending,
+		StartedAt: time.Now(),
+	}
+	updateTasksMu.Lock()
+	updateTasks[taskID] = task
+	updateTasksMu.Unlock()
+	go func() {
+		updateTasksMu.Lock()
+		task.Status = updateTaskRunning
+		updateTasksMu.Unlock()
+		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancle()
+		response := executeFundUpdate(ctx)
+		finishedAt := time.Now()
+		updateTasksMu.Lock()
+		task.Response = &response
+		task.FinishedAt = &finishedAt
+		if response.Status == "success" || response.Status == "partial_success" {
+			task.Status = updateTaskSuccess
+		} else {
+			task.Status = updateTaskFailed
+			task.Error = "fund update failed"
+		}
+		updateTasksMu.Unlock()
+	}()
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(updateTaskCreateResponse{
+		Status: "accepted",
+		TaskID: taskID,
+	})
+}
+func updateTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !requireUpdateAPIKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/update/tasks/")
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		http.Error(w, "task_id is required", http.StatusBadRequest)
+		return
+	}
+	updateTasksMu.Lock()
+	task, ok := updateTasks[taskID]
+	updateTasksMu.Unlock()
+
+	if !ok {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }

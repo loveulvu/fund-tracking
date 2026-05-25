@@ -291,6 +291,8 @@ func main() {
 	http.HandleFunc("/api/auth/verify-email-code", verifyEmailCodeHandler)
 	http.HandleFunc("/api/auth/resend-email-code", resendEmailCodeHandler)
 	http.HandleFunc("/api/update", updateFundsHandler)
+	http.HandleFunc("/api/update/async", updateFundsAsyncHandler)
+	http.HandleFunc("/api/update/tasks/", updateTaskStatusHandler)
 	http.HandleFunc("/api/funds/enrich", enrichFundsHandler)
 	http.HandleFunc("/api/funds/performance", performanceFundsHandler)
 	http.HandleFunc("/api/funds/import", authMiddleware(importFundHandler))

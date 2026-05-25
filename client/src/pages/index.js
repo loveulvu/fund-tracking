@@ -187,9 +187,47 @@ export default function Home() {
   const [selectedFund, setSelectedFund] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isLoggedIn] = useState(() => (
-    typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
-  ));
+  const [updateTaskId, setUpdateTaskId] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('');
+  const [updateMessage, setUpdateMessage] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+
+  const isUpdateRunning = (
+    updateStatus === 'pending' ||
+    updateStatus === 'accepted' ||
+    updateStatus === 'running'
+  );
+
+  async function handleAsyncUpdate() {
+    try {
+      setUpdateMessage('正在创建更新任务...');
+      setUpdateStatus('pending');
+      setUpdateTaskId('');
+
+      const response = await api.startAsyncUpdate();
+      if (!response.ok) {
+        throw new Error(`更新任务创建失败：${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.task_id) {
+        throw new Error('更新任务创建失败：缺少 task_id');
+      }
+
+      setUpdateTaskId(data.task_id);
+      setUpdateStatus(data.status || 'accepted');
+      setUpdateMessage(`更新任务已创建：${data.task_id}`);
+    } catch (err) {
+      setUpdateStatus('failed');
+      setUpdateMessage(err.message || '更新任务创建失败');
+    }
+  }
+
+  useEffect(() => {
+    setIsLoggedIn(Boolean(localStorage.getItem('token')));
+    setAuthReady(true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -222,6 +260,70 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!updateTaskId) return undefined;
+
+    let active = true;
+    let timer;
+
+    async function pollTask() {
+      try {
+        const response = await api.getUpdateTask(updateTaskId);
+        if (!response.ok) {
+          throw new Error(`任务状态查询失败：${response.status}`);
+        }
+
+        const task = await response.json();
+
+        if (!active) return;
+
+        const status = task.status || '';
+        setUpdateStatus(status);
+
+        if (status === 'success') {
+          setUpdateMessage('更新完成，正在刷新基金数据...');
+
+          const latestFunds = await api.getFunds();
+          if (active) {
+            setFunds(latestFunds);
+            setUpdateMessage('更新完成，基金数据已刷新');
+            setUpdateTaskId('');
+          }
+          return;
+        }
+
+        if (status === 'failed') {
+          setUpdateMessage(task.error || '更新任务失败');
+          setUpdateTaskId('');
+          return;
+        }
+
+        if (status === 'pending' || status === 'accepted' || status === 'running') {
+          setUpdateMessage(`当前更新状态：${status}`);
+          timer = setTimeout(pollTask, 2000);
+          return;
+        }
+
+        setUpdateStatus('failed');
+        setUpdateMessage(`未知更新状态：${status || '空'}`);
+        setUpdateTaskId('');
+      } catch (err) {
+        if (active) {
+          setUpdateStatus('failed');
+          setUpdateMessage(err.message || '任务状态查询失败');
+          setUpdateTaskId('');
+        }
+      }
+    }
+
+    timer = setTimeout(pollTask, 2000);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [updateTaskId]);
 
   const filteredFunds = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -284,7 +386,7 @@ export default function Home() {
 
         <nav className={styles.nav} aria-label="Main navigation">
           {NAV_ITEMS.map((item) => {
-            const navItem = item.href === '/login' && isLoggedIn
+            const navItem = item.href === '/login' && authReady && isLoggedIn
               ? { ...item, label: '账户', href: '/profile' }
               : item;
 
@@ -321,6 +423,21 @@ export default function Home() {
           <div className={[styles.status, error ? styles.statusError : ''].join(' ')}>
             {loading ? '加载中' : error ? '接口异常' : '真实接口数据'}
           </div>
+
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            onClick={handleAsyncUpdate}
+            disabled={isUpdateRunning}
+          >
+            {isUpdateRunning ? '更新中' : '异步更新'}
+          </button>
+
+          {updateMessage && (
+            <div className={styles.messageBox}>
+              {updateMessage}
+            </div>
+          )}
         </header>
 
         <section className={styles.hero}>
