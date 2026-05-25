@@ -79,6 +79,10 @@ type updateTask struct {
 	Response   *updateFundsResponse `json:"response,omitempty"`
 	Error      string               `json:"error,omitempty"`
 }
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
 
 func parseFloatOrZero(value string) float64 {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
@@ -421,12 +425,12 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	if !requireUpdateAPIKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 
@@ -437,7 +441,7 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 }
@@ -448,11 +452,12 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
+
 	}
 	if !requireUpdateAPIKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
@@ -499,18 +504,18 @@ func updateTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	if !requireUpdateAPIKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 	taskID := strings.TrimPrefix(r.URL.Path, "/api/update/tasks/")
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		http.Error(w, "task_id is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "task_id is required")
 		return
 	}
 	updateTasksMu.Lock()
@@ -518,13 +523,21 @@ func updateTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
 	updateTasksMu.Unlock()
 
 	if !ok {
-		http.Error(w, "task not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "not_found", "task not found")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(task); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+}
+func writeJSONError(w http.ResponseWriter, status int, code string, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
+		Error:   code,
+		Message: message,
+	})
 }
