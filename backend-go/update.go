@@ -112,14 +112,32 @@ func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	req.Header.Set("User-agent", "Mozilla/5.0")
 	resp, err := client.Do(req)
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "fundgz",
+			"error", err,
+		)
 		return Fund{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Fund{}, fmt.Errorf("fund API returned status %d", resp.StatusCode)
+		err := fmt.Errorf("fund API returned status %d", resp.StatusCode)
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "fundgz",
+			"status", resp.StatusCode,
+			"error", err,
+		)
+		return Fund{}, err
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "fundgz",
+			"stage", "read_body",
+			"error", err,
+		)
 		return Fund{}, err
 	}
 	body := strings.TrimSpace(string(bodyBytes))
@@ -127,6 +145,12 @@ func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	body = strings.TrimSuffix(body, ");")
 	var data fundGZResponse
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "fundgz",
+			"stage", "decode",
+			"error", err,
+		)
 		return Fund{}, err
 	}
 	netValue, err := parseFloatRequired(data.NetValue, "dwjz")
@@ -197,6 +221,13 @@ func upsertFundBasicInfo(ctx context.Context, fund Fund) error {
 		update,
 		options.Update().SetUpsert(true),
 	)
+	if err != nil {
+		appLogger.Error("mongo_write_failed",
+			"operation", "upsert_fund_basic_info",
+			"fund_code", fund.FundCode,
+			"error", err,
+		)
+	}
 	return err
 }
 func isValidFundCode(code string) bool {
@@ -437,7 +468,15 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
+	appLogger.Info("fund_update_start", "mode", "sync")
 	response := executeFundUpdate(ctx)
+	appLogger.Info("fund_update_end",
+		"mode", "sync",
+		"status", response.Status,
+		"updated", response.Updated,
+		"failed", len(response.FailedCodes),
+		"duration_ms", response.DurationMs,
+	)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -469,10 +508,15 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 	updateTasksMu.Lock()
 	updateTasks[taskID] = task
 	updateTasksMu.Unlock()
+	appLogger.Info("fund_update_task_created",
+		"task_id", taskID,
+		"status", task.Status,
+	)
 	go func() {
 		updateTasksMu.Lock()
 		task.Status = updateTaskRunning
 		updateTasksMu.Unlock()
+		appLogger.Info("fund_update_task_started", "task_id", taskID)
 		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancle()
 		response := executeFundUpdate(ctx)
@@ -486,7 +530,15 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 			task.Status = updateTaskFailed
 			task.Error = "fund update failed"
 		}
+		taskStatus := task.Status
 		updateTasksMu.Unlock()
+		appLogger.Info("fund_update_task_finished",
+			"task_id", taskID,
+			"status", taskStatus,
+			"updated", response.Updated,
+			"failed", len(response.FailedCodes),
+			"duration_ms", response.DurationMs,
+		)
 	}()
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)

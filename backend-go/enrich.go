@@ -176,16 +176,34 @@ func fetchFundMetadata(fundCode string) (fundMetadata, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_metadata",
+			"error", err,
+		)
 		return fundMetadata{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fundMetadata{}, fmt.Errorf("eastmoney API returned status %d", resp.StatusCode)
+		err := fmt.Errorf("eastmoney API returned status %d", resp.StatusCode)
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_metadata",
+			"status", resp.StatusCode,
+			"error", err,
+		)
+		return fundMetadata{}, err
 	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_metadata",
+			"stage", "read_body",
+			"error", err,
+		)
 		return fundMetadata{}, err
 	}
 
@@ -254,6 +272,11 @@ func updateFundMetadata(ctx context.Context, fundCode string, updateFields bson.
 		bson.M{"$set": updateFields},
 	)
 	if err != nil {
+		appLogger.Error("mongo_write_failed",
+			"operation", "update_fund_metadata",
+			"fund_code", fundCode,
+			"error", err,
+		)
 		return false, err
 	}
 	return result.MatchedCount > 0, nil

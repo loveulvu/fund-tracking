@@ -177,16 +177,34 @@ func fetchFundPerformance(fundCode string) (map[string]float64, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_performance",
+			"error", err,
+		)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("eastmoney API returned status %d", resp.StatusCode)
+		err := fmt.Errorf("eastmoney API returned status %d", resp.StatusCode)
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_performance",
+			"status", resp.StatusCode,
+			"error", err,
+		)
+		return nil, err
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		appLogger.Error("fund_fetch_failed",
+			"fund_code", fundCode,
+			"source", "eastmoney_performance",
+			"stage", "read_body",
+			"error", err,
+		)
 		return nil, err
 	}
 	return parseFundPerformanceResponse(body)
@@ -266,6 +284,11 @@ func updateFundPerformance(ctx context.Context, fundCode string, updateFields bs
 		bson.M{"$set": updateFields},
 	)
 	if err != nil {
+		appLogger.Error("mongo_write_failed",
+			"operation", "update_fund_performance",
+			"fund_code", fundCode,
+			"error", err,
+		)
 		return false, err
 	}
 	return result.MatchedCount > 0, nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -281,7 +280,8 @@ func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
 }
 func main() {
 	if err := initMongo(); err != nil {
-		log.Fatal(err)
+		appLogger.Error("mongo_init_failed", "error", err)
+		os.Exit(1)
 	}
 	defer mongoClient.Disconnect(context.Background())
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
@@ -313,9 +313,10 @@ func main() {
 		host = "0.0.0.0"
 	}
 	addr := host + ":" + port
-	log.Println("Server is running on http://" + addr)
-	err := http.ListenAndServe(addr, nil)
+	appLogger.Info("server_started", "addr", addr)
+	err := http.ListenAndServe(addr, logHTTPMiddleware(http.DefaultServeMux))
 	if err != nil {
-		log.Fatal(err)
+		appLogger.Error("server_stopped", "error", err)
+		os.Exit(1)
 	}
 }
