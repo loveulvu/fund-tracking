@@ -470,6 +470,8 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 	appLogger.Info("fund_update_start", "mode", "sync")
 	response := executeFundUpdate(ctx)
+	invalidateFundDetailCache(ctx, response.UpdatedCodes)
+
 	appLogger.Info("fund_update_end",
 		"mode", "sync",
 		"status", response.Status,
@@ -520,6 +522,7 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancle()
 		response := executeFundUpdate(ctx)
+		invalidateFundDetailCache(ctx, response.UpdatedCodes)
 		finishedAt := time.Now()
 		updateTasksMu.Lock()
 		task.Response = &response

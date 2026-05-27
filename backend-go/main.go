@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -199,6 +200,21 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
 		return
 	}
+	ctx := r.Context()
+	cacheKey := "fund_detail:" + code
+	if redisClient != nil {
+		cached, err := redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json;charset=utf-8")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write([]byte(cached))
+			return
+		}
+		if err != redis.Nil {
+			appLogger.Warn("redis_get_failed", "key", cacheKey, "error", err)
+		}
+
+	}
 	fund, ok, err := findFundByCodeInMongoDB(code)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -208,11 +224,20 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "not_found", "fund not found")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(fund); err != nil {
+	data, err := json.Marshal(fund)
+	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	if redisClient != nil {
+		if err := redisClient.Set(ctx, cacheKey, data, 60*time.Second).Err(); err != nil {
+			appLogger.Warn("redis_set_failed", "key", cacheKey, "error", err)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(data)
 
 }
 func versionHandler(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +309,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer mongoClient.Disconnect(context.Background())
+	if err := initRedis(); err != nil {
+		appLogger.Warn("redis_init_failed", "error", err)
+	} else {
+		appLogger.Info("redis_connected")
+		defer redisClient.Close()
+	}
 	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
 	http.HandleFunc("/api/version", versionHandler)
 	http.HandleFunc("/api/auth/register", registerHandler)
