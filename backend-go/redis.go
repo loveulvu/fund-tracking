@@ -12,7 +12,7 @@ import (
 )
 
 const updateLockKey = "lock:fundtracking:update"
-const updateLockTTL = 120 * time.Second
+const updateLockTTL = 5 * time.Minute
 
 var releaseUpdateLockScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) == ARGV[1] then
