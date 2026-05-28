@@ -24,13 +24,27 @@ end
 var redisClient *redis.Client
 
 func initRedis() error {
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:6379"
+	redisURL := os.Getenv("REDIS_URL")
+
+	var options *redis.Options
+	var err error
+
+	if redisURL != "" {
+		options, err = redis.ParseURL(redisURL)
+		if err != nil {
+			return err
+		}
+	} else {
+		addr := os.Getenv("REDIS_ADDR")
+		if addr == "" {
+			addr = "127.0.0.1:6379"
+		}
+		options = &redis.Options{
+			Addr: addr,
+		}
 	}
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
+
+	client := redis.NewClient(options)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
@@ -38,7 +52,6 @@ func initRedis() error {
 	}
 	redisClient = client
 	return nil
-
 }
 
 func getRedisClient() *redis.Client {
