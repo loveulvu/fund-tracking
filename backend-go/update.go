@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -67,9 +66,6 @@ type updateTaskCreateResponse struct {
 	Status string `json:"status"`
 	TaskID string `json:"task_id"`
 }
-
-var updateTasks = make(map[string]*updateTask)
-var updateTasksMu sync.Mutex
 
 type updateTask struct {
 	ID         string               `json:"id"`
@@ -543,9 +539,11 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		Status:    updateTaskPending,
 		StartedAt: time.Now(),
 	}
-	updateTasksMu.Lock()
-	updateTasks[taskID] = task
-	updateTasksMu.Unlock()
+	if err := saveUpdateTask(r.Context(), task); err != nil {
+		appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "redis_task_error", "failed to save update task")
+		return
+	}
 	appLogger.Info("fund_update_task_created",
 		"task_id", taskID,
 		"status", task.Status,
@@ -561,9 +559,11 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 				appLogger.Warn("fund_update_unlock_skipped", "mode", "async", "task_id", taskID)
 			}
 		}()
-		updateTasksMu.Lock()
 		task.Status = updateTaskRunning
-		updateTasksMu.Unlock()
+		if err := saveUpdateTask(context.Background(), task); err != nil {
+			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
+			return
+		}
 		appLogger.Info("fund_update_task_started", "task_id", taskID)
 
 		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -571,17 +571,22 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		response := executeFundUpdate(ctx)
 		invalidateFundDetailCache(ctx, response.UpdatedCodes)
 		finishedAt := time.Now()
-		updateTasksMu.Lock()
 		task.Response = &response
 		task.FinishedAt = &finishedAt
+
 		if response.Status == "success" || response.Status == "partial_success" {
 			task.Status = updateTaskSuccess
 		} else {
 			task.Status = updateTaskFailed
 			task.Error = "fund update failed"
 		}
+
 		taskStatus := task.Status
-		updateTasksMu.Unlock()
+
+		if err := saveUpdateTask(context.Background(), task); err != nil {
+			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
+			return
+		}
 		appLogger.Info("fund_update_task_finished",
 			"task_id", taskID,
 			"status", taskStatus,
@@ -620,9 +625,12 @@ func updateTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "task_id is required")
 		return
 	}
-	updateTasksMu.Lock()
-	task, ok := updateTasks[taskID]
-	updateTasksMu.Unlock()
+	task, ok, err := loadUpdateTask(r.Context(), taskID)
+	if err != nil {
+		appLogger.Error("fund_update_task_load_failed", "task_id", taskID, "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "redis_task_error", "failed to load update task")
+		return
+	}
 
 	if !ok {
 		writeJSONError(w, http.StatusNotFound, "not_found", "task not found")

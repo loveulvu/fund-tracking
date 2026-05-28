@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"time"
@@ -13,6 +14,11 @@ import (
 
 const updateLockKey = "lock:fundtracking:update"
 const updateLockTTL = 5 * time.Minute
+const updateTaskTTL = 1 * time.Hour
+
+func updateTaskKey(taskID string) string {
+	return "fund:update:task:" + taskID
+}
 
 var releaseUpdateLockScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -56,6 +62,36 @@ func initRedis() error {
 
 func getRedisClient() *redis.Client {
 	return redisClient
+}
+func saveUpdateTask(ctx context.Context, task *updateTask) error {
+	if redisClient == nil {
+		return errors.New("redis client is not initialized")
+	}
+	if task == nil {
+		return errors.New("task is nil")
+	}
+	data, err := json.Marshal(task)
+	if err != nil {
+		return err
+	}
+	return redisClient.Set(ctx, updateTaskKey(task.ID), data, updateTaskTTL).Err()
+}
+func loadUpdateTask(ctx context.Context, taskID string) (*updateTask, bool, error) {
+	if redisClient == nil {
+		return nil, false, errors.New("redis client is not initialized")
+	}
+	data, err := redisClient.Get(ctx, updateTaskKey(taskID)).Result()
+	if err == redis.Nil {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var task updateTask
+	if err := json.Unmarshal([]byte(data), &task); err != nil {
+		return nil, false, err
+	}
+	return &task, true, nil
 }
 func invalidateFundDetailCache(ctx context.Context, codes []string) {
 	if redisClient == nil || len(codes) == 0 {

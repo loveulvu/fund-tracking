@@ -201,7 +201,7 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	cacheKey := "fund_detail:" + code
+	cacheKey := "fund:detail:" + code
 	if redisClient != nil {
 		cached, err := redisClient.Get(ctx, cacheKey).Result()
 		if err == nil {
