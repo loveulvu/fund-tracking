@@ -467,6 +467,28 @@ func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	locked, lockToken, err := acquireUpdateLock(ctx)
+	if err != nil {
+		appLogger.Error("fund_update_lock_failed", "mode", "sync", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
+		return
+	}
+
+	if !locked {
+		writeJSONError(w, http.StatusConflict, "update_locked", "fund update is already running")
+		return
+	}
+
+	defer func() {
+		released, err := releaseUpdateLock(context.Background(), lockToken)
+		if err != nil {
+			appLogger.Error("fund_update_unlock_failed", "mode", "sync", "error", err)
+			return
+		}
+		if !released {
+			appLogger.Warn("fund_update_unlock_skipped", "mode", "sync")
+		}
+	}()
 
 	appLogger.Info("fund_update_start", "mode", "sync")
 	response := executeFundUpdate(ctx)
@@ -501,6 +523,20 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
+	lockCtx, lockCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer lockCancel()
+	locked, lockToken, err := acquireUpdateLock(lockCtx)
+	if err != nil {
+		appLogger.Error("fund_update_lock_failed", "mode", "async", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
+		return
+	}
+
+	if !locked {
+		writeJSONError(w, http.StatusConflict, "update_locked", "fund update is already running")
+		return
+	}
+
 	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
 	task := &updateTask{
 		ID:        taskID,
@@ -514,11 +550,22 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 		"task_id", taskID,
 		"status", task.Status,
 	)
-	go func() {
+	go func(lockToken string) {
+		defer func() {
+			released, err := releaseUpdateLock(context.Background(), lockToken)
+			if err != nil {
+				appLogger.Error("fund_update_unlock_failed", "mode", "async", "task_id", taskID, "error", err)
+				return
+			}
+			if !released {
+				appLogger.Warn("fund_update_unlock_skipped", "mode", "async", "task_id", taskID)
+			}
+		}()
 		updateTasksMu.Lock()
 		task.Status = updateTaskRunning
 		updateTasksMu.Unlock()
 		appLogger.Info("fund_update_task_started", "task_id", taskID)
+
 		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancle()
 		response := executeFundUpdate(ctx)
@@ -542,7 +589,7 @@ func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
 			"failed", len(response.FailedCodes),
 			"duration_ms", response.DurationMs,
 		)
-	}()
+	}(lockToken)
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(updateTaskCreateResponse{
