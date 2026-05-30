@@ -52,3 +52,10 @@ These rules apply to the whole repository unless a deeper `AGENTS.md` overrides 
 - `repository`
 
 - Keep the architecture straightforward and avoid unnecessary abstraction.
+
+## Scope and Verification Defaults
+
+- If the user says “只读”, “审查”, or “不要修改”, do not edit files; inspect and report only.
+- If the user says “只修改 README” or “只修改文档”, do not touch business code, config, workflows, or frontend/backend logic.
+- Before saying a requested file was changed, verify with `git diff -- <path>` or `git status --short`; for new files, confirm they appear as untracked or staged.
+- Do not commit or push unless the user explicitly asks for that action in the current turn. Before any commit/push, report `git status --short`, `git diff --stat`, and the exact files that would be included.
