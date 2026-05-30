@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -58,16 +59,46 @@ func watchlistHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func getWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
+
+	ctx := r.Context()
+	userID := claims.UserID
+	cacheKey := watchlistCacheKey(userID)
+	if redisClient != nil {
+		cached, err := redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json;charset=utf-8")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write([]byte(cached))
+			return
+		}
+		if err != redis.Nil {
+			appLogger.Warn("redis_get_failed", "key", cacheKey, "error", err)
+		}
+
+	}
 	items, err := findWatchlistByUserID(claims.UserID)
 	if err != nil {
 		http.Error(w, "Failed to fetch watchlist", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(items)
+	data, err := json.Marshal(items)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if redisClient != nil {
+		if err := redisClient.Set(ctx, cacheKey, data, time.Minute).Err(); err != nil {
+			appLogger.Warn("redis_set_failed", "key", cacheKey, "error", err)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(data)
 }
+
 func addWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
 	var req AddWatchlistRequest
+	ctx := r.Context()
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -98,6 +129,7 @@ func addWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthCla
 		http.Error(w, "Failed to add to watchlist: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	invalidateWatchlistCache(ctx, claims.UserID)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createdItem)
@@ -179,6 +211,7 @@ func findWatchlistByUserID(userID string) ([]WatchlistItem, error) {
 func deleteWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
 	fundCode := strings.TrimPrefix(r.URL.Path, "/api/watchlist/")
 	fundCode = strings.TrimSpace(strings.Trim(fundCode, "/"))
+	ctx := r.Context()
 	if fundCode == "" {
 		http.Error(w, "fundCode is required", http.StatusBadRequest)
 		return
@@ -196,6 +229,7 @@ func deleteWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *Auth
 		})
 		return
 	}
+	invalidateWatchlistCache(ctx, claims.UserID)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Successfully removed from watchlist",
@@ -221,6 +255,7 @@ func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
 }
 func updateWatchlistThresholdHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
 	fundCode := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/watchlist/"), "/")
+	ctx := r.Context()
 	if fundCode == "" {
 		http.Error(w, "fundCode is required", http.StatusBadRequest)
 		return
@@ -243,6 +278,7 @@ func updateWatchlistThresholdHandler(w http.ResponseWriter, r *http.Request, cla
 		http.Error(w, "Watchlist item not found", http.StatusNotFound)
 		return
 	}
+	invalidateWatchlistCache(ctx, claims.UserID)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(updatedItem)

@@ -142,3 +142,17 @@ func releaseUpdateLock(ctx context.Context, token string) (bool, error) {
 	}
 	return result == 1, nil
 }
+func searchCacheKey(query string) string {
+	return "fund:search:" + query
+}
+func watchlistCacheKey(userID string) string {
+	return "user:" + userID + ":watchlist"
+}
+func invalidateWatchlistCache(ctx context.Context, userID string) {
+	if redisClient == nil {
+		return
+	}
+	if err := redisClient.Del(ctx, watchlistCacheKey(userID)).Err(); err != nil {
+		appLogger.Warn("redis_delete_failed", "key", watchlistCacheKey(userID), "error", err)
+	}
+}

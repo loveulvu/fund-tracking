@@ -150,19 +150,42 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	if query == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "fund code is required")
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
 		return
+	}
+	ctx := r.Context()
+	cacheKey := searchCacheKey(query)
+	if redisClient != nil {
+		cached, err := redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json;charset=utf-8")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write([]byte(cached))
+			return
+		}
+		if err != redis.Nil {
+			appLogger.Warn("redis_get_failed", "key", cacheKey, "error", err)
+		}
+
 	}
 	funds, err := searchFundsInMongoDB(query)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(funds); err != nil {
+	data, err := json.Marshal(funds)
+	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	if redisClient != nil {
+		if err := redisClient.Set(ctx, cacheKey, data, 5*time.Minute).Err(); err != nil {
+			appLogger.Warn("redis_set_failed", "key", cacheKey, "error", err)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+	w.Header().Set("X-Cache", "MISS")
+	w.Write(data)
 }
 func fundsHandler(w http.ResponseWriter, r *http.Request) {
 	enableCORS(w)
