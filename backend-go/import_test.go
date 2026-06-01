@@ -2,17 +2,20 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"net/http"
-	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestImportFundRouteRequiresAuth(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/import", bytes.NewBufferString(`{"fundCode":"011839"}`))
-	response := httptest.NewRecorder()
-
-	authMiddleware(importFundHandler)(response, request)
+	response := performGinRequest(
+		http.MethodPost,
+		"/api/funds/import",
+		bytes.NewBufferString(`{"fundCode":"011839"}`),
+		ginAuthMiddleware(),
+		importFundGinHandler,
+	)
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)
@@ -20,14 +23,19 @@ func TestImportFundRouteRequiresAuth(t *testing.T) {
 }
 
 func TestImportFundHandlerRejectsInvalidFundCode(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/import", bytes.NewBufferString(`{"fundCode":"人工智能"}`))
-	request = request.WithContext(context.WithValue(request.Context(), authClaimsKey, &AuthClaims{
-		UserID: "test-user",
-		Email:  "test@example.com",
-	}))
-	response := httptest.NewRecorder()
-
-	importFundHandler(response, request)
+	response := performGinRequest(
+		http.MethodPost,
+		"/api/funds/import",
+		bytes.NewBufferString(`{"fundCode":"invalid"}`),
+		func(c *gin.Context) {
+			c.Set("authClaims", &AuthClaims{
+				UserID: "test-user",
+				Email:  "test@example.com",
+			})
+			c.Next()
+		},
+		importFundGinHandler,
+	)
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, response.Code)
@@ -37,7 +45,7 @@ func TestImportFundHandlerRejectsInvalidFundCode(t *testing.T) {
 func TestBuildExistingImportResponse(t *testing.T) {
 	fund := Fund{
 		FundCode: "011839",
-		FundName: "天弘中证人工智能A",
+		FundName: "test fund",
 	}
 
 	response := buildExistingImportResponse(fund)
@@ -59,20 +67,20 @@ func TestBuildExistingImportResponse(t *testing.T) {
 func TestApplyMetadataToFundSkipsEmptyValues(t *testing.T) {
 	fund := Fund{
 		FundCode:    "011839",
-		FundCompany: "已有公司",
+		FundCompany: "existing company",
 	}
 
 	applyMetadataToFund(&fund, fundMetadata{
-		FundType:    "指数型-股票",
+		FundType:    "index stock",
 		FundCompany: "",
 		FundManager: "0",
 		FundScale:   "12095.02",
 	})
 
-	if fund.FundType != "指数型-股票" {
+	if fund.FundType != "index stock" {
 		t.Fatalf("expected fund type to be updated, got %s", fund.FundType)
 	}
-	if fund.FundCompany != "已有公司" {
+	if fund.FundCompany != "existing company" {
 		t.Fatalf("expected existing company to be preserved, got %s", fund.FundCompany)
 	}
 	if fund.FundManager != "" {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -33,86 +34,94 @@ type UpdateWatchlistThresholdRequest struct {
 
 var errWatchlistExists = errors.New("watchlist item already exists")
 
-func watchlistHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	claims, ok := getAuthClaims(r)
+func getWatchlistGinHandler(c *gin.Context) {
+	claims, ok := getGinAuthClaims(c)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "unauthorized",
+			"message": "unauthorized",
+		})
 		return
 	}
-	switch r.Method {
-	case http.MethodGet:
-		getWatchlistHandler(w, r, claims)
-	case http.MethodPost:
-		addWatchlistHandler(w, r, claims)
-	case http.MethodDelete:
-		deleteWatchlistHandler(w, r, claims)
-	case http.MethodPut:
-		updateWatchlistThresholdHandler(w, r, claims)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-func getWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
 
-	ctx := r.Context()
+	ctx := c.Request.Context()
 	userID := claims.UserID
 	cacheKey := watchlistCacheKey(userID)
+
 	if redisClient != nil {
 		cached, err := redisClient.Get(ctx, cacheKey).Result()
 		if err == nil {
-			w.Header().Set("Content-Type", "application/json;charset=utf-8")
-			w.Header().Set("X-Cache", "HIT")
-			w.Write([]byte(cached))
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "application/json;charset=utf-8", []byte(cached))
 			return
 		}
 		if err != redis.Nil {
 			appLogger.Warn("redis_get_failed", "key", cacheKey, "error", err)
 		}
-
 	}
-	items, err := findWatchlistByUserID(claims.UserID)
+
+	items, err := findWatchlistByUserID(userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch watchlist", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "failed to fetch watchlist",
+		})
 		return
 	}
+
 	data, err := json.Marshal(items)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
+
 	if redisClient != nil {
 		if err := redisClient.Set(ctx, cacheKey, data, time.Minute).Err(); err != nil {
 			appLogger.Warn("redis_set_failed", "key", cacheKey, "error", err)
 		}
 	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	w.Header().Set("X-Cache", "MISS")
-	w.Write(data)
-}
 
-func addWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
-	var req AddWatchlistRequest
-	ctx := r.Context()
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	c.Header("X-Cache", "MISS")
+	c.Data(http.StatusOK, "application/json;charset=utf-8", data)
+}
+func addWatchlistGinHandler(c *gin.Context) {
+	claims, ok := getGinAuthClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "unauthorized",
+			"message": "unauthorized",
+		})
 		return
 	}
+
+	var req AddWatchlistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "invalid request body",
+		})
+		return
+	}
+
 	req.FundCode = strings.TrimSpace(req.FundCode)
 	req.FundName = strings.TrimSpace(req.FundName)
+
 	if req.FundCode == "" || req.FundName == "" {
-		http.Error(w, "fundCode and fundName are required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "fundCode and fundName are required",
+		})
 		return
 	}
+
 	alertThreshold := 5.0
 	if req.AlertThreshold != nil {
 		alertThreshold = *req.AlertThreshold
 	}
+
 	item := WatchlistItem{
 		UserID:         claims.UserID,
 		FundCode:       req.FundCode,
@@ -120,20 +129,29 @@ func addWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthCla
 		AlertThreshold: alertThreshold,
 		AddedAt:        time.Now().UTC(),
 	}
+
 	createdItem, err := insertWatchlistItem(item)
 	if err != nil {
 		if errors.Is(err, errWatchlistExists) {
-			http.Error(w, "Fund already in watchlist", http.StatusConflict)
+			c.JSON(http.StatusConflict, gin.H{
+				"code":    "conflict",
+				"message": "fund already in watchlist",
+			})
 			return
 		}
-		http.Error(w, "Failed to add to watchlist: "+err.Error(), http.StatusInternalServerError)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "failed to add watchlist item",
+		})
 		return
 	}
-	invalidateWatchlistCache(ctx, claims.UserID)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createdItem)
+
+	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
+
+	c.JSON(http.StatusCreated, createdItem)
 }
+
 func insertWatchlistItem(item WatchlistItem) (WatchlistItem, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -208,33 +226,49 @@ func findWatchlistByUserID(userID string) ([]WatchlistItem, error) {
 	return items, nil
 
 }
-func deleteWatchlistHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
-	fundCode := strings.TrimPrefix(r.URL.Path, "/api/watchlist/")
-	fundCode = strings.TrimSpace(strings.Trim(fundCode, "/"))
-	ctx := r.Context()
-	if fundCode == "" {
-		http.Error(w, "fundCode is required", http.StatusBadRequest)
-		return
-	}
-	deleted, err := deleteWatchlistItem(claims.UserID, fundCode)
-	if err != nil {
-		http.Error(w, "Failed to delete watchlist item", http.StatusInternalServerError)
-		return
-	}
-	if !deleted {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Watchlist item not found",
+func deleteWatchlistGinHandler(c *gin.Context) {
+	claims, ok := getGinAuthClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "unauthorized",
+			"message": "unauthorized",
 		})
 		return
 	}
-	invalidateWatchlistCache(ctx, claims.UserID)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Successfully removed from watchlist",
+
+	fundCode := strings.TrimSpace(c.Param("fundCode"))
+	if fundCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "fundCode is required",
+		})
+		return
+	}
+
+	deleted, err := deleteWatchlistItem(claims.UserID, fundCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "failed to delete watchlist item",
+		})
+		return
+	}
+
+	if !deleted {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    "not_found",
+			"message": "watchlist item not found",
+		})
+		return
+	}
+
+	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "successfully removed from watchlist",
 	})
 }
+
 func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -253,37 +287,69 @@ func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
 	}
 	return result.DeletedCount > 0, nil
 }
-func updateWatchlistThresholdHandler(w http.ResponseWriter, r *http.Request, claims *AuthClaims) {
-	fundCode := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/watchlist/"), "/")
-	ctx := r.Context()
+func updateWatchlistThresholdGinHandler(c *gin.Context) {
+	claims, ok := getGinAuthClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "unauthorized",
+			"message": "unauthorized",
+		})
+		return
+	}
+
+	fundCode := strings.TrimSpace(c.Param("fundCode"))
 	if fundCode == "" {
-		http.Error(w, "fundCode is required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "fundCode is required",
+		})
 		return
 	}
+
 	var req UpdateWatchlistThresholdRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "invalid request body",
+		})
 		return
 	}
+
 	if req.AlertThreshold == nil {
-		http.Error(w, "alertThreshold is required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "alertThreshold is required",
+		})
 		return
 	}
-	updatedItem, found, err := updateWatchlistThreshold(claims.UserID, fundCode, *req.AlertThreshold)
+
+	updatedItem, found, err := updateWatchlistThreshold(
+		claims.UserID,
+		fundCode,
+		*req.AlertThreshold,
+	)
+
 	if err != nil {
-		http.Error(w, "Failed to update watchlist threshold: "+err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "failed to update watchlist threshold",
+		})
 		return
 	}
+
 	if !found {
-		http.Error(w, "Watchlist item not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    "not_found",
+			"message": "watchlist item not found",
+		})
 		return
 	}
-	invalidateWatchlistCache(ctx, claims.UserID)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(updatedItem)
+	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
 
+	c.JSON(http.StatusOK, updatedItem)
 }
+
 func updateWatchlistThreshold(userID string, fundCode string, alertThreshold float64) (WatchlistItem, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

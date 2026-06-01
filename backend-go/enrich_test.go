@@ -2,17 +2,13 @@ package main
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestEnrichFundsHandlerRequiresUpdateKeyHeader(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "test-update-key")
 
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/enrich", nil)
-	response := httptest.NewRecorder()
-
-	enrichFundsHandler(response, request)
+	response := performGinRequest(http.MethodPost, "/api/funds/enrich", nil, enrichFundsGinHandler)
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)
@@ -22,10 +18,7 @@ func TestEnrichFundsHandlerRequiresUpdateKeyHeader(t *testing.T) {
 func TestEnrichFundsHandlerRejectsQueryKey(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "test-update-key")
 
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/enrich?key=test-update-key", nil)
-	response := httptest.NewRecorder()
-
-	enrichFundsHandler(response, request)
+	response := performGinRequest(http.MethodPost, "/api/funds/enrich?key=test-update-key", nil, enrichFundsGinHandler)
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestParseFundPerformanceResponseMapsTargetTitles(t *testing.T) {
@@ -125,10 +127,7 @@ func TestBuildFundPerformanceUpdateSkipsEmptyMap(t *testing.T) {
 func TestPerformanceFundsHandlerRequiresUpdateKeyHeader(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "test-update-key")
 
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/performance", nil)
-	response := httptest.NewRecorder()
-
-	performanceFundsHandler(response, request)
+	response := performGinRequest(http.MethodPost, "/api/funds/performance", nil, performanceFundsGinHandler)
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)
@@ -138,10 +137,7 @@ func TestPerformanceFundsHandlerRequiresUpdateKeyHeader(t *testing.T) {
 func TestPerformanceFundsHandlerRejectsQueryKey(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "test-update-key")
 
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/performance?key=test-update-key", nil)
-	response := httptest.NewRecorder()
-
-	performanceFundsHandler(response, request)
+	response := performGinRequest(http.MethodPost, "/api/funds/performance?key=test-update-key", nil, performanceFundsGinHandler)
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)
@@ -151,11 +147,10 @@ func TestPerformanceFundsHandlerRejectsQueryKey(t *testing.T) {
 func TestPerformanceFundsHandlerFailsClosedWhenUpdateKeyMissing(t *testing.T) {
 	t.Setenv("UPDATE_API_KEY", "")
 
-	request := httptest.NewRequest(http.MethodPost, "/api/funds/performance", nil)
-	request.Header.Set("X-Update-Key", "test-update-key")
-	response := httptest.NewRecorder()
-
-	performanceFundsHandler(response, request)
+	response := performGinRequest(http.MethodPost, "/api/funds/performance", nil, func(c *gin.Context) {
+		c.Request.Header.Set("X-Update-Key", "test-update-key")
+		performanceFundsGinHandler(c)
+	})
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, response.Code)

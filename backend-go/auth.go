@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -88,75 +89,161 @@ type AuthErrorResponse struct {
 	RetryAfterSeconds    int    `json:"retryAfterSeconds,omitempty"`
 }
 
-func registerHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req RegisterRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func loginGinHandler(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid request body",
+		})
 		return
 	}
 
 	email := normalizeEmail(req.Email)
 	password := req.Password
-	if !isValidEmailFormat(email) {
-		writeAuthJSONError(w, http.StatusBadRequest, "Email is required", AuthErrorResponse{})
-		return
-	}
-	if len(password) < 6 {
-		writeAuthJSONError(w, http.StatusBadRequest, "Password must be at least 6 characters", AuthErrorResponse{})
+
+	if email == "" || password == "" {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Email and password are required",
+		})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	collection := mongoClient.Database("fund_tracking").Collection("users")
+
+	var user User
+	err := collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusUnauthorized, AuthErrorResponse{
+			Error: "Invalid email or password",
+		})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Database error",
+		})
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, AuthErrorResponse{
+			Error: "Invalid email or password",
+		})
+		return
+	}
+
+	if !isEmailVerifiedForLogin(user) {
+		c.JSON(http.StatusForbidden, AuthErrorResponse{
+			Error:                "Email verification required",
+			RequiresVerification: true,
+			Email:                user.Email,
+		})
+		return
+	}
+
+	token, err := generateJWT(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Failed to generate token",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, LoginResponse{
+		Message: "login successful",
+		Token:   token,
+		ID:      user.ID.Hex(),
+		Email:   user.Email,
+	})
+}
+func registerGinHandler(c *gin.Context) {
+	var req RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid request body",
+		})
+		return
+	}
+
+	email := normalizeEmail(req.Email)
+	password := req.Password
+
+	if !isValidEmailFormat(email) {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Email is required",
+		})
+		return
+	}
+
+	if len(password) < 6 {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Password must be at least 6 characters",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
 	collection := mongoClient.Database("fund_tracking").Collection("users")
 
 	var existing User
-	err = collection.FindOne(ctx, bson.M{"email": email}).Decode(&existing)
+	err := collection.FindOne(ctx, bson.M{"email": email}).Decode(&existing)
 
 	if err == nil {
-		writeAuthJSONError(w, http.StatusConflict, "Email already registered", AuthErrorResponse{})
+		c.JSON(http.StatusConflict, AuthErrorResponse{
+			Error: "Email already registered",
+		})
 		return
 	}
 
 	if err != mongo.ErrNoDocuments {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Database error", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Database error",
+		})
 		return
 	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Registration failed", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Registration failed",
+		})
 		return
 	}
+
 	code, err := generateVerificationCode()
 	if err != nil {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Registration failed", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Registration failed",
+		})
 		return
 	}
+
 	codeHash, err := hashVerificationCode(code)
 	if err != nil {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Registration failed", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Registration failed",
+		})
 		return
 	}
+
 	if err := sendVerificationCodeEmail(email, code); err != nil {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Registration failed", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Registration failed",
+		})
 		return
 	}
+
 	now := time.Now().UTC()
 	emailVerified := false
+
 	user := User{
 		Email:                      email,
 		PasswordHash:               string(hashedPassword),
@@ -167,27 +254,57 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		EmailVerificationAttempts:  0,
 		EmailVerificationSentAt:    now,
 	}
+
 	result, err := collection.InsertOne(ctx, user)
 	if err != nil {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Failed to create user", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Failed to create user",
+		})
 		return
 	}
+
 	insertedID, ok := result.InsertedID.(primitive.ObjectID)
 	if !ok {
-		writeAuthJSONError(w, http.StatusInternalServerError, "Failed to parse user ID", AuthErrorResponse{})
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Failed to parse user ID",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusCreated)
-
-	json.NewEncoder(w).Encode(RegisterResponse{
+	c.JSON(http.StatusCreated, RegisterResponse{
 		Message:              "verification code sent",
 		ID:                   insertedID.Hex(),
 		Email:                email,
 		RequiresVerification: true,
 	})
 }
+
+func ginAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, err := getClaimsFromRequest(c.Request)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    "unauthorized",
+				"message": "unauthorized",
+			})
+			return
+		}
+
+		c.Set("authClaims", claims)
+		c.Next()
+	}
+
+}
+func getGinAuthClaims(c *gin.Context) (*AuthClaims, bool) {
+	value, ok := c.Get("authClaims")
+	if !ok {
+		return nil, false
+	}
+
+	claims, ok := value.(*AuthClaims)
+	return claims, ok
+}
+
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w)
@@ -205,6 +322,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r.WithContext(ctx))
 	}
 }
+
 func getAuthClaims(r *http.Request) (*AuthClaims, bool) {
 	claims, ok := r.Context().Value(authClaimsKey).(*AuthClaims)
 	return claims, ok
@@ -341,6 +459,43 @@ type MeResponse struct {
 	UserID        string `json:"user_id"`
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"emailVerified"`
+}
+
+func meGinHandler(c *gin.Context) {
+	claims, ok := getGinAuthClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "unauthorized",
+			"message": "unauthorized",
+		})
+		return
+	}
+
+	emailVerified := true
+
+	if claims.UserID != "" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+
+		user, found, err := findUserByID(ctx, claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    "internal_error",
+				"message": "database error",
+			})
+			return
+		}
+
+		if found {
+			emailVerified = isEmailVerifiedForLogin(user)
+		}
+	}
+
+	c.JSON(http.StatusOK, MeResponse{
+		UserID:        claims.UserID,
+		Email:         claims.Email,
+		EmailVerified: emailVerified,
+	})
 }
 
 func meHandler(w http.ResponseWriter, r *http.Request) {
@@ -539,6 +694,205 @@ func resendEmailCodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeResendSuccess(w)
+}
+func verifyEmailCodeGinHandler(c *gin.Context) {
+	var req VerifyEmailCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid or expired verification code",
+		})
+		return
+	}
+
+	email := normalizeEmail(req.Email)
+	code := strings.TrimSpace(req.Code)
+
+	if !isValidEmailFormat(email) || !isValidVerificationCodeFormat(code) {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid or expired verification code",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	collection := mongoClient.Database("fund_tracking").Collection("users")
+
+	var user User
+	err := collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid or expired verification code",
+		})
+		return
+	}
+
+	if isEmailExplicitlyVerified(user) {
+		c.JSON(http.StatusOK, VerifyEmailCodeResponse{
+			Status:        "success",
+			Message:       "email verified",
+			Email:         email,
+			EmailVerified: true,
+		})
+		return
+	}
+
+	if !canAttemptEmailVerification(user, time.Now().UTC()) {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid or expired verification code",
+		})
+		return
+	}
+
+	codeHash, err := hashVerificationCode(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Verification failed",
+		})
+		return
+	}
+
+	if codeHash != user.EmailVerificationCodeHash {
+		_, _ = collection.UpdateOne(ctx, bson.M{"email": email}, bson.M{
+			"$inc": bson.M{"emailVerificationAttempts": 1},
+		})
+
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid or expired verification code",
+		})
+		return
+	}
+
+	now := time.Now().UTC()
+
+	_, err = collection.UpdateOne(ctx, bson.M{"email": email}, bson.M{
+		"$set": bson.M{
+			"emailVerified":             true,
+			"emailVerifiedAt":           now,
+			"emailVerificationAttempts": 0,
+		},
+		"$unset": bson.M{
+			"emailVerificationCodeHash":  "",
+			"emailVerificationExpiresAt": "",
+		},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Verification failed",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, VerifyEmailCodeResponse{
+		Status:        "success",
+		Message:       "email verified",
+		Email:         email,
+		EmailVerified: true,
+	})
+}
+func resendEmailCodeGinHandler(c *gin.Context) {
+	var req ResendEmailCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, AuthErrorResponse{
+			Error: "Invalid request body",
+		})
+		return
+	}
+
+	email := normalizeEmail(req.Email)
+
+	if !isValidEmailFormat(email) {
+		c.JSON(http.StatusOK, ResendEmailCodeResponse{
+			Status:  "success",
+			Message: "verification code sent",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	collection := mongoClient.Database("fund_tracking").Collection("users")
+
+	var user User
+	err := collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusOK, ResendEmailCodeResponse{
+			Status:  "success",
+			Message: "verification code sent",
+		})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Resend failed",
+		})
+		return
+	}
+
+	if isEmailExplicitlyVerified(user) {
+		c.JSON(http.StatusOK, ResendEmailCodeResponse{
+			Status:  "success",
+			Message: "verification code sent",
+		})
+		return
+	}
+
+	if retryAfter, ok := emailVerificationCooldownRemaining(user.EmailVerificationSentAt, time.Now().UTC()); ok {
+		c.JSON(http.StatusTooManyRequests, AuthErrorResponse{
+			Error:             "Please wait before requesting another code",
+			RetryAfterSeconds: retryAfter,
+		})
+		return
+	}
+
+	code, err := generateVerificationCode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Resend failed",
+		})
+		return
+	}
+
+	codeHash, err := hashVerificationCode(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Resend failed",
+		})
+		return
+	}
+
+	if err := sendVerificationCodeEmail(email, code); err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Resend failed",
+		})
+		return
+	}
+
+	now := time.Now().UTC()
+
+	_, err = collection.UpdateOne(ctx, bson.M{"email": email}, bson.M{
+		"$set": bson.M{
+			"emailVerificationCodeHash":  codeHash,
+			"emailVerificationExpiresAt": now.Add(10 * time.Minute),
+			"emailVerificationAttempts":  0,
+			"emailVerificationSentAt":    now,
+		},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, AuthErrorResponse{
+			Error: "Resend failed",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, ResendEmailCodeResponse{
+		Status:  "success",
+		Message: "verification code sent",
+	})
 }
 
 func normalizeEmail(email string) string {

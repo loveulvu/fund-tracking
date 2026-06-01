@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -138,99 +139,88 @@ func searchFundsInMongoDB(query string) ([]Fund, error) {
 	}
 	return findFundsByFilter(filter)
 }
-func searchHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	query := strings.TrimSpace(r.URL.Query().Get("query"))
+func searchGinHandler(c *gin.Context) {
+	query := strings.TrimSpace(c.Query("query"))
 	if query == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "search query is required",
+		})
 		return
 	}
-	ctx := r.Context()
+	ctx := c.Request.Context()
 	cacheKey := searchCacheKey(query)
+
 	if redisClient != nil {
 		cached, err := redisClient.Get(ctx, cacheKey).Result()
 		if err == nil {
-			w.Header().Set("Content-Type", "application/json;charset=utf-8")
-			w.Header().Set("X-Cache", "HIT")
-			w.Write([]byte(cached))
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "application/json;charset=utf-8", []byte(cached))
 			return
 		}
 		if err != redis.Nil {
 			appLogger.Warn("redis_get_failed", "key", cacheKey, "error", err)
 		}
-
 	}
+
 	funds, err := searchFundsInMongoDB(query)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
+
 	data, err := json.Marshal(funds)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
+
 	if redisClient != nil {
 		if err := redisClient.Set(ctx, cacheKey, data, 5*time.Minute).Err(); err != nil {
 			appLogger.Warn("redis_set_failed", "key", cacheKey, "error", err)
 		}
 	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	w.Header().Set("X-Cache", "MISS")
-	w.Write(data)
+
+	c.Header("X-Cache", "MISS")
+	c.Data(http.StatusOK, "application/json;charset=utf-8", data)
 }
-func fundsHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
+
+func fundsGinHandler(c *gin.Context) {
 	funds, err := loadFundsFromMongoDB()
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(funds); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
+
+	c.JSON(http.StatusOK, funds)
 }
-func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	code := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/fund/"), "/")
+
+func fundDetailGinHandler(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
 	if code == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "search query is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "invalid_request",
+			"message": "fund code is required",
+		})
 		return
 	}
-	ctx := r.Context()
+	ctx := c.Request.Context()
 	cacheKey := "fund:detail:" + code
 	if redisClient != nil {
 		cached, err := redisClient.Get(ctx, cacheKey).Result()
 		if err == nil {
-			w.Header().Set("Content-Type", "application/json;charset=utf-8")
-			w.Header().Set("X-Cache", "HIT")
-			w.Write([]byte(cached))
+
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "application/json;charset=utf-8", []byte(cached))
 			return
 		}
 		if err != redis.Nil {
@@ -240,16 +230,25 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fund, ok, err := findFundByCodeInMongoDB(code)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
 	if !ok {
-		writeJSONError(w, http.StatusNotFound, "not_found", "fund not found")
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    "not_found",
+			"message": "fund not found",
+		})
 		return
 	}
 	data, err := json.Marshal(fund)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
 	if redisClient != nil {
@@ -258,24 +257,10 @@ func fundDetailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	w.Header().Set("X-Cache", "MISS")
-	w.Write(data)
-
+	c.Header("X-Cache", "MISS")
+	c.Data(http.StatusOK, "application/json;charset=utf-8", data)
 }
-func versionHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
+func versionGinHandler(c *gin.Context) {
 	commit := os.Getenv("GIT_COMMIT")
 	if commit == "" {
 		commit = os.Getenv("RAILWAY_GIT_COMMIT_SHA")
@@ -289,8 +274,7 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 		shortCommit = shortCommit[:7]
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]any{
+	c.JSON(http.StatusOK, gin.H{
 		"service":     "fund-tracking-go-api",
 		"version":     getenvDefault("APP_VERSION", "dev"),
 		"commit":      shortCommit,
@@ -299,29 +283,25 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 		"server_time": time.Now().Unix(),
 	})
 }
-func mongoHealthHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
+func mongoHealthGinHandler(c *gin.Context) {
 	if mongoClient == nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 	if err := mongoClient.Ping(ctx, nil); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "internal_error",
+			"message": "internal server error",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	json.NewEncoder(w).Encode(map[string]string{
+	c.JSON(http.StatusOK, gin.H{
 		"status":  "ok",
 		"message": "MongoDB connected",
 	})
@@ -338,27 +318,40 @@ func main() {
 		appLogger.Info("redis_connected")
 		defer redisClient.Close()
 	}
-	http.HandleFunc("/api/health/mongo", mongoHealthHandler)
-	http.HandleFunc("/api/version", versionHandler)
-	http.HandleFunc("/api/auth/register", registerHandler)
-	http.HandleFunc("/api/auth/login", loginHandler)
-	http.HandleFunc("/api/auth/verify-email-code", verifyEmailCodeHandler)
-	http.HandleFunc("/api/auth/resend-email-code", resendEmailCodeHandler)
-	http.HandleFunc("/api/update", updateFundsHandler)
-	http.HandleFunc("/api/update/async", updateFundsAsyncHandler)
-	http.HandleFunc("/api/update/tasks/", updateTaskStatusHandler)
-	http.HandleFunc("/api/funds/enrich", enrichFundsHandler)
-	http.HandleFunc("/api/funds/performance", performanceFundsHandler)
-	http.HandleFunc("/api/funds/import", authMiddleware(importFundHandler))
-	http.HandleFunc("/api/alerts/check", alertsCheckHandler)
-	http.HandleFunc("/api/alerts/send", alertsSendHandler)
-	http.HandleFunc("/api/auth/me", authMiddleware(meHandler))
-	http.HandleFunc("/api/watchlist", authMiddleware(watchlistHandler))
-	http.HandleFunc("/api/watchlist/", authMiddleware(watchlistHandler))
-	http.HandleFunc("/api/funds/search", searchHandler)
-	http.HandleFunc("/api/funds", fundsHandler)
-	http.HandleFunc("/api/fund/", fundDetailHandler)
-	http.HandleFunc("/api/search_proxy", searchHandler)
+	r := gin.Default()
+
+	api := r.Group("/api")
+
+	api.GET("/health/mongo", mongoHealthGinHandler)
+	api.GET("/version", versionGinHandler)
+	auth := api.Group("/auth")
+	auth.POST("/register", registerGinHandler)
+	auth.POST("/login", loginGinHandler)
+	auth.POST("/verify-email-code", verifyEmailCodeGinHandler)
+	auth.POST("/resend-email-code", resendEmailCodeGinHandler)
+	auth.GET("/me", ginAuthMiddleware(), meGinHandler)
+	api.POST("/update", updateFundsGinHandler)
+	api.POST("/update/async", updateFundsAsyncGinHandler)
+	api.GET("/update/tasks/:id", updateTaskStatusGinHandler)
+
+	api.POST("/funds/enrich", enrichFundsGinHandler)
+	api.POST("/funds/performance", performanceFundsGinHandler)
+	api.POST("/funds/import", ginAuthMiddleware(), importFundGinHandler)
+
+	api.GET("/alerts/check", alertsCheckGinHandler)
+	api.POST("/alerts/send", alertsSendGinHandler)
+
+	api.GET("/funds/search", searchGinHandler)
+	api.GET("/funds", fundsGinHandler)
+	api.GET("/fund/:code", fundDetailGinHandler)
+	api.GET("/search_proxy", searchGinHandler)
+	watchlist := api.Group("/watchlist")
+	watchlist.Use(ginAuthMiddleware())
+
+	watchlist.GET("", getWatchlistGinHandler)
+	watchlist.POST("", addWatchlistGinHandler)
+	watchlist.PUT("/:fundCode", updateWatchlistThresholdGinHandler)
+	watchlist.DELETE("/:fundCode", deleteWatchlistGinHandler)
 	port := os.Getenv("PORT")
 	host := "127.0.0.1"
 	if port == "" {
@@ -368,7 +361,7 @@ func main() {
 	}
 	addr := host + ":" + port
 	appLogger.Info("server_started", "addr", addr)
-	err := http.ListenAndServe(addr, logHTTPMiddleware(http.DefaultServeMux))
+	err := http.ListenAndServe(addr, logHTTPMiddleware(r))
 	if err != nil {
 		appLogger.Error("server_stopped", "error", err)
 		os.Exit(1)

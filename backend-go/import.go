@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type importFundRequest struct {
@@ -21,50 +22,34 @@ type importFundResponse struct {
 	Warnings       []string `json:"warnings"`
 }
 
-func importFundHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if _, ok := getAuthClaims(r); !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+func importFundGinHandler(c *gin.Context) {
+	if _, ok := getGinAuthClaims(c); !ok {
+		c.String(http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req importFundRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.String(http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	fundCode := strings.TrimSpace(req.FundCode)
 	if !isValidFundCode(fundCode) {
-		http.Error(w, "fundCode must be a 6-digit code", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "fundCode must be a 6-digit code")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	response, statusCode, err := importFundByCode(ctx, fundCode)
 	if err != nil {
-		http.Error(w, err.Error(), statusCode)
+		c.String(statusCode, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
+	c.JSON(statusCode, response)
 }
 
 func importFundByCode(ctx context.Context, fundCode string) (importFundResponse, int, error) {
@@ -151,3 +136,53 @@ func applyMetadataToFund(fund *Fund, metadata fundMetadata) {
 		fund.FundScale = value
 	}
 }
+
+// =========================
+// Legacy net/http handlers kept for Gin refactor review.
+// Remove before merging gin-refactor.
+// =========================
+// func importFundHandler(w http.ResponseWriter, r *http.Request) {
+// 	enableCORS(w)
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+//
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+//
+// 	if _, ok := getAuthClaims(r); !ok {
+// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	var req importFundRequest
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+// 		return
+// 	}
+//
+// 	fundCode := strings.TrimSpace(req.FundCode)
+// 	if !isValidFundCode(fundCode) {
+// 		http.Error(w, "fundCode must be a 6-digit code", http.StatusBadRequest)
+// 		return
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+//
+// 	response, statusCode, err := importFundByCode(ctx, fundCode)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), statusCode)
+// 		return
+// 	}
+//
+// 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+// 	w.WriteHeader(statusCode)
+// 	if err := json.NewEncoder(w).Encode(response); err != nil {
+// 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+// 		return
+// 	}
+// }

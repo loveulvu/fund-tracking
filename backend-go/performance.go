@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -56,40 +57,26 @@ var performanceFieldOrder = []string{
 	"three_year_growth",
 }
 
-func performanceFundsHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
+func performanceFundsGinHandler(c *gin.Context) {
 	start := time.Now()
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	if !requireUpdateAPIKeyHeader(c.Request) {
+		c.String(http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if !requireUpdateAPIKeyHeader(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 180*time.Second)
 	defer cancel()
 
 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
 	if err != nil {
-		http.Error(w, "Failed to build performance fund codes", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "Failed to build performance fund codes")
 		return
 	}
 
 	response := buildPerformanceFundsResponse(ctx, targetCodes, skippedCodes, start)
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-	}
+	c.JSON(http.StatusOK, response)
 }
 
 func buildPerformanceFundsResponse(ctx context.Context, targetCodes []string, skippedCodes []string, start time.Time) performanceFundsResponse {
@@ -316,3 +303,43 @@ func determinePerformanceStatus(updated int, failed int) string {
 	}
 	return "success"
 }
+
+// =========================
+// Legacy net/http handlers kept for Gin refactor review.
+// Remove before merging gin-refactor.
+// =========================
+// func performanceFundsHandler(w http.ResponseWriter, r *http.Request) {
+// 	enableCORS(w)
+// 	start := time.Now()
+//
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+//
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+//
+// 	if !requireUpdateAPIKeyHeader(r) {
+// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+// 	defer cancel()
+//
+// 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
+// 	if err != nil {
+// 		http.Error(w, "Failed to build performance fund codes", http.StatusInternalServerError)
+// 		return
+// 	}
+//
+// 	response := buildPerformanceFundsResponse(ctx, targetCodes, skippedCodes, start)
+//
+// 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+// 	if err := json.NewEncoder(w).Encode(response); err != nil {
+// 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+// 	}
+// }

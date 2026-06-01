@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -80,6 +81,210 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
+func updateFundsGinHandler(c *gin.Context) {
+	if !requireUpdateAPIKey(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "unauthorized",
+			"message": "missing or invalid token",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	locked, lockToken, err := acquireUpdateLock(ctx)
+	if err != nil {
+		appLogger.Error("fund_update_lock_failed", "mode", "sync", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "redis_lock_error",
+			"message": "failed to acquire update lock",
+		})
+		return
+	}
+
+	if !locked {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "update_locked",
+			"message": "fund update is already running",
+		})
+		return
+	}
+
+	defer func() {
+		released, err := releaseUpdateLock(context.Background(), lockToken)
+		if err != nil {
+			appLogger.Error("fund_update_unlock_failed", "mode", "sync", "error", err)
+			return
+		}
+		if !released {
+			appLogger.Warn("fund_update_unlock_skipped", "mode", "sync")
+		}
+	}()
+
+	appLogger.Info("fund_update_start", "mode", "sync")
+
+	response := executeFundUpdate(ctx)
+	invalidateFundDetailCache(ctx, response.UpdatedCodes)
+
+	appLogger.Info("fund_update_end",
+		"mode", "sync",
+		"status", response.Status,
+		"updated", response.Updated,
+		"failed", len(response.FailedCodes),
+		"duration_ms", response.DurationMs,
+	)
+
+	c.JSON(http.StatusOK, response)
+}
+func updateFundsAsyncGinHandler(c *gin.Context) {
+	if !requireUpdateAPIKey(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "unauthorized",
+			"message": "missing or invalid token",
+		})
+		return
+	}
+
+	lockCtx, lockCancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer lockCancel()
+
+	locked, lockToken, err := acquireUpdateLock(lockCtx)
+	if err != nil {
+		appLogger.Error("fund_update_lock_failed", "mode", "async", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "redis_lock_error",
+			"message": "failed to acquire update lock",
+		})
+		return
+	}
+
+	if !locked {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "update_locked",
+			"message": "fund update is already running",
+		})
+		return
+	}
+
+	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
+
+	task := &updateTask{
+		ID:        taskID,
+		Status:    updateTaskPending,
+		StartedAt: time.Now(),
+	}
+
+	if err := saveUpdateTask(c.Request.Context(), task); err != nil {
+		appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "redis_task_error",
+			"message": "failed to save update task",
+		})
+		return
+	}
+
+	appLogger.Info("fund_update_task_created",
+		"task_id", taskID,
+		"status", task.Status,
+	)
+
+	go func(lockToken string) {
+		defer func() {
+			released, err := releaseUpdateLock(context.Background(), lockToken)
+			if err != nil {
+				appLogger.Error("fund_update_unlock_failed", "mode", "async", "task_id", taskID, "error", err)
+				return
+			}
+			if !released {
+				appLogger.Warn("fund_update_unlock_skipped", "mode", "async", "task_id", taskID)
+			}
+		}()
+
+		task.Status = updateTaskRunning
+		if err := saveUpdateTask(context.Background(), task); err != nil {
+			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
+			return
+		}
+
+		appLogger.Info("fund_update_task_started", "task_id", taskID)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		response := executeFundUpdate(ctx)
+		invalidateFundDetailCache(ctx, response.UpdatedCodes)
+
+		finishedAt := time.Now()
+		task.Response = &response
+		task.FinishedAt = &finishedAt
+
+		if response.Status == "success" || response.Status == "partial_success" {
+			task.Status = updateTaskSuccess
+		} else {
+			task.Status = updateTaskFailed
+			task.Error = "fund update failed"
+		}
+
+		taskStatus := task.Status
+
+		if err := saveUpdateTask(context.Background(), task); err != nil {
+			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
+			return
+		}
+
+		appLogger.Info("fund_update_task_finished",
+			"task_id", taskID,
+			"status", taskStatus,
+			"updated", response.Updated,
+			"failed", len(response.FailedCodes),
+			"duration_ms", response.DurationMs,
+		)
+	}(lockToken)
+
+	c.JSON(http.StatusAccepted, updateTaskCreateResponse{
+		Status: "accepted",
+		TaskID: taskID,
+	})
+}
+func updateTaskStatusGinHandler(c *gin.Context) {
+	if !requireUpdateAPIKey(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "unauthorized",
+			"message": "missing or invalid token",
+		})
+		return
+	}
+
+	taskID := strings.TrimSpace(c.Param("id"))
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid_request",
+			"message": "task_id is required",
+		})
+		return
+	}
+
+	task, ok, err := loadUpdateTask(c.Request.Context(), taskID)
+	if err != nil {
+		appLogger.Error("fund_update_task_load_failed", "task_id", taskID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "redis_task_error",
+			"message": "failed to load update task",
+		})
+		return
+	}
+
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "not_found",
+			"message": "task not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
+}
 func parseFloatOrZero(value string) float64 {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {
@@ -443,206 +648,7 @@ func runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int
 	}
 	return updateResults
 }
-func updateFundsHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
-	if !requireUpdateAPIKey(r) {
-		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	locked, lockToken, err := acquireUpdateLock(ctx)
-	if err != nil {
-		appLogger.Error("fund_update_lock_failed", "mode", "sync", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
-		return
-	}
-
-	if !locked {
-		writeJSONError(w, http.StatusConflict, "update_locked", "fund update is already running")
-		return
-	}
-
-	defer func() {
-		released, err := releaseUpdateLock(context.Background(), lockToken)
-		if err != nil {
-			appLogger.Error("fund_update_unlock_failed", "mode", "sync", "error", err)
-			return
-		}
-		if !released {
-			appLogger.Warn("fund_update_unlock_skipped", "mode", "sync")
-		}
-	}()
-
-	appLogger.Info("fund_update_start", "mode", "sync")
-	response := executeFundUpdate(ctx)
-	invalidateFundDetailCache(ctx, response.UpdatedCodes)
-
-	appLogger.Info("fund_update_end",
-		"mode", "sync",
-		"status", response.Status,
-		"updated", response.Updated,
-		"failed", len(response.FailedCodes),
-		"duration_ms", response.DurationMs,
-	)
-
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-}
-func updateFundsAsyncHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-
-	}
-	if !requireUpdateAPIKey(r) {
-		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-	lockCtx, lockCancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer lockCancel()
-	locked, lockToken, err := acquireUpdateLock(lockCtx)
-	if err != nil {
-		appLogger.Error("fund_update_lock_failed", "mode", "async", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
-		return
-	}
-
-	if !locked {
-		writeJSONError(w, http.StatusConflict, "update_locked", "fund update is already running")
-		return
-	}
-
-	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
-	task := &updateTask{
-		ID:        taskID,
-		Status:    updateTaskPending,
-		StartedAt: time.Now(),
-	}
-	if err := saveUpdateTask(r.Context(), task); err != nil {
-		appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "redis_task_error", "failed to save update task")
-		return
-	}
-	appLogger.Info("fund_update_task_created",
-		"task_id", taskID,
-		"status", task.Status,
-	)
-	go func(lockToken string) {
-		defer func() {
-			released, err := releaseUpdateLock(context.Background(), lockToken)
-			if err != nil {
-				appLogger.Error("fund_update_unlock_failed", "mode", "async", "task_id", taskID, "error", err)
-				return
-			}
-			if !released {
-				appLogger.Warn("fund_update_unlock_skipped", "mode", "async", "task_id", taskID)
-			}
-		}()
-		task.Status = updateTaskRunning
-		if err := saveUpdateTask(context.Background(), task); err != nil {
-			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
-			return
-		}
-		appLogger.Info("fund_update_task_started", "task_id", taskID)
-
-		ctx, cancle := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancle()
-		response := executeFundUpdate(ctx)
-		invalidateFundDetailCache(ctx, response.UpdatedCodes)
-		finishedAt := time.Now()
-		task.Response = &response
-		task.FinishedAt = &finishedAt
-
-		if response.Status == "success" || response.Status == "partial_success" {
-			task.Status = updateTaskSuccess
-		} else {
-			task.Status = updateTaskFailed
-			task.Error = "fund update failed"
-		}
-
-		taskStatus := task.Status
-
-		if err := saveUpdateTask(context.Background(), task); err != nil {
-			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
-			return
-		}
-		appLogger.Info("fund_update_task_finished",
-			"task_id", taskID,
-			"status", taskStatus,
-			"updated", response.Updated,
-			"failed", len(response.FailedCodes),
-			"duration_ms", response.DurationMs,
-		)
-	}(lockToken)
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(updateTaskCreateResponse{
-		Status: "accepted",
-		TaskID: taskID,
-	})
-}
-func updateTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
-	if !requireUpdateAPIKey(r) {
-		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-	taskID := strings.TrimPrefix(r.URL.Path, "/api/update/tasks/")
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "task_id is required")
-		return
-	}
-	task, ok, err := loadUpdateTask(r.Context(), taskID)
-	if err != nil {
-		appLogger.Error("fund_update_task_load_failed", "task_id", taskID, "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "redis_task_error", "failed to load update task")
-		return
-	}
-
-	if !ok {
-		writeJSONError(w, http.StatusNotFound, "not_found", "task not found")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(task); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
-}
 func writeJSONError(w http.ResponseWriter, status int, code string, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

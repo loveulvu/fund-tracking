@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -44,41 +45,32 @@ type fundMetadata struct {
 	FundScale   string
 }
 
-func enrichFundsHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
+func enrichFundsGinHandler(c *gin.Context) {
 	start := time.Now()
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	if !requireUpdateAPIKeyHeader(c.Request) {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Error:   "unauthorized",
+			Message: "missing or invalid token",
+		})
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
-	if !requireUpdateAPIKeyHeader(r) {
-		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 180*time.Second)
 	defer cancel()
 
 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "internal_error",
+			Message: "internal server error",
+		})
 		return
 	}
 
 	response := buildEnrichFundsResponse(ctx, targetCodes, skippedCodes, start)
 
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		return
-	}
+	c.JSON(http.StatusOK, response)
 }
 
 func buildEnrichFundsResponse(ctx context.Context, targetCodes []string, skippedCodes []string, start time.Time) enrichFundsResponse {
@@ -292,3 +284,44 @@ func sortedMetadataFieldNames(updateFields bson.M) []string {
 	}
 	return fields
 }
+
+// =========================
+// Legacy net/http handlers kept for Gin refactor review.
+// Remove before merging gin-refactor.
+// =========================
+// func enrichFundsHandler(w http.ResponseWriter, r *http.Request) {
+// 	enableCORS(w)
+// 	start := time.Now()
+//
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+//
+// 	if r.Method != http.MethodPost {
+// 		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+// 		return
+// 	}
+//
+// 	if !requireUpdateAPIKeyHeader(r) {
+// 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
+// 		return
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+// 	defer cancel()
+//
+// 	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
+// 	if err != nil {
+// 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+// 		return
+// 	}
+//
+// 	response := buildEnrichFundsResponse(ctx, targetCodes, skippedCodes, start)
+//
+// 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
+// 	if err := json.NewEncoder(w).Encode(response); err != nil {
+// 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+// 		return
+// 	}
+// }

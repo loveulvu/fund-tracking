@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -113,74 +114,47 @@ type resendEmailResponse struct {
 	ID string `json:"id"`
 }
 
-func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
+func alertsCheckGinHandler(c *gin.Context) {
 	start := time.Now()
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	if !requireUpdateAPIKey(c.Request) {
+		c.String(http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if !requireUpdateAPIKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	watchlistItems, err := findWatchlistItemsForAlertCheck(ctx)
 	if err != nil {
-		http.Error(w, "Failed to load watchlist items", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "Failed to load watchlist items")
 		return
 	}
 
 	response := buildAlertCheckResponse(ctx, watchlistItems, start)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
+	c.JSON(http.StatusOK, response)
 }
 
-func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
-	enableCORS(w)
+func alertsSendGinHandler(c *gin.Context) {
 	start := time.Now()
 
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	if !requireUpdateAPIKeyHeader(c.Request) {
+		c.String(http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if !requireUpdateAPIKeyHeader(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	alertLogs, err := findAlertLogsForEmail(ctx)
 	if err != nil {
-		http.Error(w, "Failed to load alert logs for email", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "Failed to load alert logs for email")
 		return
 	}
 
 	if len(alertLogs) == 0 {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(alertSendResponse{
+		c.JSON(http.StatusOK, alertSendResponse{
 			Status:       "success",
 			Selected:     0,
 			Sent:         0,
@@ -210,16 +184,13 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 			DurationMs:   time.Since(start).Milliseconds(),
 			DryRun:       false,
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(response)
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
 	resendConfig, err := getResendConfig()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(alertSendErrorResponse{
+		c.JSON(http.StatusServiceUnavailable, alertSendErrorResponse{
 			Status: "failed",
 			Error:  err.Error(),
 			DryRun: false,
@@ -230,11 +201,7 @@ func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
 	response := buildAlertSendResponse(ctx, emailReadyLogs, resendConfig, start)
 	response = mergeAlertSendPreparation(response, len(alertLogs), skippedItems, failedItems)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
+	c.JSON(http.StatusOK, response)
 }
 
 func buildAlertCheckResponse(ctx context.Context, watchlistItems []bson.M, start time.Time) alertCheckResponse {
@@ -881,3 +848,131 @@ func stringifyAlertValue(value any) string {
 		return fmt.Sprint(value)
 	}
 }
+
+// =========================
+// Legacy net/http handlers kept for Gin refactor review.
+// Remove before merging gin-refactor.
+// =========================
+// func alertsCheckHandler(w http.ResponseWriter, r *http.Request) {
+// 	enableCORS(w)
+// 	start := time.Now()
+//
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+//
+// 	if r.Method != http.MethodGet {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+//
+// 	if !requireUpdateAPIKey(r) {
+// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+//
+// 	watchlistItems, err := findWatchlistItemsForAlertCheck(ctx)
+// 	if err != nil {
+// 		http.Error(w, "Failed to load watchlist items", http.StatusInternalServerError)
+// 		return
+// 	}
+//
+// 	response := buildAlertCheckResponse(ctx, watchlistItems, start)
+//
+// 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// 	if err := json.NewEncoder(w).Encode(response); err != nil {
+// 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+// 		return
+// 	}
+// }
+//
+// func alertsSendHandler(w http.ResponseWriter, r *http.Request) {
+// 	enableCORS(w)
+// 	start := time.Now()
+//
+// 	if r.Method == http.MethodOptions {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+//
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+//
+// 	if !requireUpdateAPIKeyHeader(r) {
+// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+//
+// 	alertLogs, err := findAlertLogsForEmail(ctx)
+// 	if err != nil {
+// 		http.Error(w, "Failed to load alert logs for email", http.StatusInternalServerError)
+// 		return
+// 	}
+//
+// 	if len(alertLogs) == 0 {
+// 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// 		json.NewEncoder(w).Encode(alertSendResponse{
+// 			Status:       "success",
+// 			Selected:     0,
+// 			Sent:         0,
+// 			Failed:       0,
+// 			Skipped:      0,
+// 			SentItems:    []alertSendItem{},
+// 			FailedItems:  []alertSendItem{},
+// 			SkippedItems: []alertSendItem{},
+// 			DurationMs:   time.Since(start).Milliseconds(),
+// 			DryRun:       false,
+// 		})
+// 		return
+// 	}
+//
+// 	emailReadyLogs, skippedItems, failedItems := prepareAlertLogsForEmail(ctx, alertLogs)
+//
+// 	if len(emailReadyLogs) == 0 {
+// 		response := alertSendResponse{
+// 			Status:       determineAlertSendStatus(len(alertLogs), 0, len(skippedItems), len(failedItems)),
+// 			Selected:     len(alertLogs),
+// 			Sent:         0,
+// 			Failed:       len(failedItems),
+// 			Skipped:      len(skippedItems),
+// 			SentItems:    []alertSendItem{},
+// 			FailedItems:  failedItems,
+// 			SkippedItems: skippedItems,
+// 			DurationMs:   time.Since(start).Milliseconds(),
+// 			DryRun:       false,
+// 		}
+// 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+//
+// 	resendConfig, err := getResendConfig()
+// 	if err != nil {
+// 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// 		w.WriteHeader(http.StatusServiceUnavailable)
+// 		json.NewEncoder(w).Encode(alertSendErrorResponse{
+// 			Status: "failed",
+// 			Error:  err.Error(),
+// 			DryRun: false,
+// 		})
+// 		return
+// 	}
+//
+// 	response := buildAlertSendResponse(ctx, emailReadyLogs, resendConfig, start)
+// 	response = mergeAlertSendPreparation(response, len(alertLogs), skippedItems, failedItems)
+//
+// 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+// 	if err := json.NewEncoder(w).Encode(response); err != nil {
+// 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+// 		return
+// 	}
+// }
