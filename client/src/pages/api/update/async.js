@@ -12,8 +12,9 @@ export default async function handler(req, res) {
     return;
   }
 
-  const response = await fetch(`${backendBaseUrl.replace(/\/$/, '')}/api/update/async`, {
-    method: 'GET',
+  const upstreamUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/update/async`;
+  const response = await fetch(upstreamUrl, {
+    method: 'POST',
     headers: {
       'X-Update-Key': updateKey,
     },
