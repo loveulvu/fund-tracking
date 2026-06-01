@@ -13,16 +13,45 @@ export default async function handler(req, res) {
   }
 
   const upstreamUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/update/async`;
-  const response = await fetch(upstreamUrl, {
-    method: 'POST',
-    headers: {
-      'X-Update-Key': updateKey,
-    },
-  });
+  let response;
+
+  try {
+    response = await fetch(upstreamUrl, {
+      method: 'POST',
+      headers: {
+        'X-Update-Key': updateKey,
+      },
+    });
+  } catch (error) {
+    console.error('Update proxy upstream fetch failed', {
+      upstreamUrl,
+      error: describeProxyError(error),
+    });
+    res.status(502).json({ error: 'Update proxy upstream request failed' });
+    return;
+  }
 
   const text = await response.text();
 
   res.status(response.status);
   res.setHeader('Content-Type', response.headers.get('content-type') || 'application/json');
   res.send(text);
+}
+
+function describeProxyError(error) {
+  if (!error || typeof error !== 'object') {
+    return {
+      name: undefined,
+      message: String(error),
+      code: undefined,
+      cause: undefined,
+    };
+  }
+
+  return {
+    name: error.name,
+    message: error.message,
+    code: error.code,
+    cause: error.cause,
+  };
 }
