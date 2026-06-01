@@ -1,24 +1,26 @@
 # Fund Tracking
 
-Fund Tracking 是一个基金跟踪系统，用于展示和管理基金数据。项目支持基金列表、基金详情、搜索、自选列表、登录注册，以及异步更新基金数据。
+Fund Tracking 是一个基金跟踪系统，用于展示和管理基金数据。项目支持基金列表、基金详情、基金搜索、自选列表、登录注册，以及异步更新基金数据。
 
-这个项目的定位是 Go 后端实习项目展示，重点在于前后端分离、Go Gin 后端重构、缓存与异步任务、以及一次真实线上部署链路的排查与落地。它不是金融交易系统，也不提供投资建议或交易能力。
+这个项目的定位是 Go 后端实习项目展示，重点在于前后端分离、Go Gin 后端重构、MongoDB / Redis 数据访问、异步任务处理，以及一次真实线上部署链路的排查与落地。项目不提供投资建议或交易能力。
 
 ## Current Online Architecture
 
 当前线上链路：
 
-- Frontend: Vercel
-- Website: `https://www.fundtracking.online`
-- API domain: `https://api-fund.fundtracking.online`
-- Backend: Alibaba Cloud ECS 上的 Go Gin 后端
-- Backend binary: `/opt/fund-tracking/backend-go/fund-tracking-go-api`
-- systemd service: `fund-tracking.service`
-- systemd env file: `/etc/fund-tracking.env`
-- Backend listen address: `127.0.0.1:8081` by default
-- Nginx config: `/www/server/panel/vhost/nginx/fund-tracking-api.conf`
-- Nginx proxy: `/api/ -> http://127.0.0.1:8081/api/`
-- HTTPS certificate: Let's Encrypt
+| Part | Current Setup |
+| --- | --- |
+| Frontend | Vercel |
+| Website | `https://www.fundtracking.online` |
+| API domain | `https://api-fund.fundtracking.online` |
+| Backend | Alibaba Cloud ECS 上的 Go Gin 后端 |
+| Backend binary | `/opt/fund-tracking/backend-go/fund-tracking-go-api` |
+| systemd service | `fund-tracking.service` |
+| systemd env file | `/etc/fund-tracking.env` |
+| Backend listen address | `127.0.0.1:8081` by default |
+| Nginx config | `/www/server/panel/vhost/nginx/fund-tracking-api.conf` |
+| Nginx proxy | `/api/ -> http://127.0.0.1:8081/api/` |
+| HTTPS certificate | Let's Encrypt |
 
 ```text
 User Browser
@@ -35,42 +37,16 @@ The frontend reads `NEXT_PUBLIC_GO_API_URL` to decide which API host to call. Cu
 NEXT_PUBLIC_GO_API_URL=https://api-fund.fundtracking.online
 ```
 
-## Async Update Flow
+## Project Highlights
 
-The async update button no longer uses a Vercel API Route as a proxy.
-
-Reason: Vercel Serverless Functions had unstable HTTPS connectivity to the Alibaba Cloud API domain (`ECONNRESET`), while HTTP requests were blocked by Alibaba Cloud ICP filing checks. The current solution keeps the browser on HTTPS and lets Nginx inject the private update key server-side.
-
-Task creation:
-
-```text
-Browser
-  -> https://api-fund.fundtracking.online/api/update/async-client
-  -> Nginx injects X-Update-Key
-  -> http://127.0.0.1:8081/api/update/async
-  -> Go backend creates async update task
-  -> Redis stores task status
-```
-
-Task polling:
-
-```text
-Browser
-  -> https://api-fund.fundtracking.online/api/update/tasks-client/{task_id}
-  -> Nginx injects X-Update-Key
-  -> http://127.0.0.1:8081/api/update/tasks/{task_id}
-  -> Go backend reads Redis task status
-```
-
-Verified production logs include:
-
-```text
-POST /api/update/async status=202
-GET /api/update/tasks/{task_id} status=200
-GET /api/funds status=200
-```
-
-`/api/update/async-client` and `/api/update/tasks-client/{task_id}` are Nginx browser-facing entries. They are not native Go business routes. The native Go routes are `/api/update/async` and `/api/update/tasks/:id`.
+- Go 后端已从原生 `net/http` 迁移到 Gin，使用 Gin 路由、中间件、`Context` 和 `ShouldBindJSON`。
+- JWT 鉴权中间件用于保护用户相关接口，例如 `/api/auth/me` 和 `/api/watchlist`。
+- `watchlist` 模块已按 Handler / Service / Repository 做第一轮分层整理，接口行为保持兼容。
+- MongoDB Atlas 用于基金数据、用户、邮箱验证码和自选列表等数据存储。
+- Redis 用于缓存、TTL、Cache Aside、更新锁和异步任务状态。
+- 更新流程支持 worker pool 并发行情更新，并用 Redis lock 避免重复更新任务重叠。
+- GitHub Actions 包含定时任务 workflow，用于调用维护类接口。
+- 线上部署链路为 Vercel + Alibaba Cloud ECS + Nginx + systemd + Let's Encrypt。
 
 ## Tech Stack
 
@@ -80,43 +56,78 @@ GET /api/funds status=200
 | Backend | Go, Gin |
 | Database | MongoDB Atlas |
 | Cache / Lock / Task Status | Redis |
-| Deployment | Vercel, Alibaba Cloud ECS, Nginx, systemd, Let's Encrypt |
 | Auth | JWT, bcrypt |
-| Scheduled Task | GitHub Actions workflow exists in `.github/workflows/trading_update.yml` |
+| Deployment | Vercel, Alibaba Cloud ECS, Nginx, systemd, Let's Encrypt |
+| Scheduled Task | GitHub Actions workflow in `.github/workflows/trading_update.yml` |
 
-The GitHub Actions workflow is scheduled at UTC 11:00 on weekdays and can also be triggered manually. It uses `BACKEND_BASE_URL` and `UPDATE_API_KEY` secrets and uploads response artifacts. The current workflow file should be kept aligned with the deployed Gin route methods before relying on it for production maintenance.
+The GitHub Actions workflow is scheduled at UTC 11:00 on weekdays and can also be triggered manually. It uses `BACKEND_BASE_URL` and `UPDATE_API_KEY` secrets and uploads response artifacts. The workflow should be kept aligned with the deployed Gin route methods before relying on it for production maintenance.
+
+## Backend Design / Architecture
+
+The Go backend keeps a simple structure and does not introduce a complex framework layout. The current direction is incremental refactoring inside `backend-go`.
+
+### Gin HTTP Layer
+
+- `main.go` registers Gin route groups and middleware.
+- Handlers read route params with `c.Param`, query values with `c.Query`, and JSON bodies with `c.ShouldBindJSON`.
+- `gin_response.go` provides `Success`, `Fail`, and auth claims helpers for consistent JSON responses.
+- Handlers use `c.Request.Context()` so MongoDB, Redis, and external requests can follow the request lifecycle and cancellation signal.
+
+### Watchlist Layering
+
+`watchlist` is the first module cleaned into a clearer Handler / Service / Repository shape:
+
+| Layer | Responsibility |
+| --- | --- |
+| Handler | Gin 参数读取、JWT claims 获取、调用 service、把业务错误映射成原有 HTTP 状态码和 `{code,message}` |
+| Service | 参数清理、业务校验、重复添加判断结果处理、缓存读取/回填/失效、业务错误定义 |
+| Repository | MongoDB `Find` / `InsertOne` / `DeleteOne` / `UpdateOne` / `FindOne`，只接收 `context.Context`，不依赖 `gin.Context` |
+
+Watchlist cache uses a Cache Aside pattern:
+
+- Redis hit: returns cached JSON and `X-Cache: HIT`.
+- Redis miss: reads MongoDB, writes Redis with TTL, and returns `X-Cache: MISS`.
+- Add / update / delete operations invalidate the user's watchlist cache after MongoDB writes succeed.
 
 ## Backend Capabilities
 
-- REST API for fund data, auth, watchlist, update tasks, alerts, and metadata enrichment
-- Gin route registration and middleware
-- JWT authentication for user APIs
-- MongoDB queries and updates for fund data, users, and watchlists
-- Redis cache for selected read paths
-- Redis lock to avoid overlapping fund update jobs
-- Redis task status storage for async updates
-- Nginx reverse proxy with server-side injection of update key for browser-triggered async update routes
-- systemd service management for the Go backend process
+- REST API for fund data, auth, watchlist, update tasks, alerts, and metadata enrichment.
+- Gin route groups and JWT authentication middleware.
+- Unified Gin response helpers for success and `{code,message}` failure responses.
+- MongoDB connection reuse through the shared `mongoClient`.
+- MongoDB queries and updates for fund data, users, and watchlists.
+- Redis cache with TTL and Cache Aside behavior for selected read paths.
+- Redis distributed lock to avoid overlapping fund update jobs.
+- Redis task status storage for async update polling.
+- Worker pool based fund update flow for concurrent data refresh.
+- Request-scoped `context.Context` propagation from Gin handlers into MongoDB and Redis operations where practical.
+- Nginx reverse proxy with server-side injection of update key for browser-triggered async update routes.
+- systemd service management and journal-based log inspection for the Go backend process.
 
 ## Project Structure
 
 ```text
 .
-├── backend-go/                 # Go Gin backend
-│   ├── main.go                 # startup, Mongo init, Gin routes
-│   ├── update.go               # sync and async fund update handlers
-│   ├── auth.go                 # register, login, JWT, email verification
-│   ├── watchlist.go            # watchlist APIs
-│   ├── alerts.go               # alert check and email send APIs
-│   ├── import.go               # import a fund by code
-│   ├── enrich.go               # fund metadata enrichment
-│   ├── performance.go          # period performance enrichment
-│   ├── redis.go                # Redis cache, lock, task status
-│   └── Dockerfile
-├── client/                     # Next.js frontend
+├── backend-go/                     # Go Gin backend
+│   ├── main.go                     # startup, Mongo init, Gin routes and route groups
+│   ├── gin_response.go             # Gin Success / Fail helpers and auth claims helper
+│   ├── auth.go                     # register, login, JWT, email verification handlers
+│   ├── auth_email.go               # email verification helpers
+│   ├── watchlist.go                # watchlist Gin handlers
+│   ├── watchlist_service.go        # watchlist business logic, validation, cache invalidation
+│   ├── watchlist_repository.go     # MongoDB watchlist persistence
+│   ├── update.go                   # sync and async fund update handlers, worker update flow
+│   ├── redis.go                    # Redis cache, lock, task status helpers
+│   ├── import.go                   # import a fund by code
+│   ├── enrich.go                   # fund metadata enrichment
+│   ├── performance.go              # period performance enrichment
+│   ├── alerts.go                   # alert check and email send APIs
+│   ├── logger.go                   # application logging helpers
+│   └── Dockerfile                  # optional container build file
+├── client/                         # Next.js frontend
 │   └── src/
 ├── .github/workflows/
-│   └── trading_update.yml      # scheduled maintenance workflow
+│   └── trading_update.yml          # scheduled maintenance workflow
 ├── docs/
 └── README.md
 ```
@@ -169,6 +180,42 @@ Notes:
 - `/api/update` and `/api/update/async` require `X-Update-Key`.
 - The frontend must not expose `UPDATE_API_KEY`.
 - Browser-triggered async update uses Nginx entries `/api/update/async-client` and `/api/update/tasks-client/{task_id}`. Nginx injects `X-Update-Key` before proxying to the Go backend.
+- `async-client` and `tasks-client` are Nginx browser-facing entries, not native Go business routes.
+
+## Async Update Flow
+
+The async update button no longer uses a Vercel API Route as a proxy.
+
+Reason: Vercel Serverless Functions had unstable HTTPS connectivity to the Alibaba Cloud API domain (`ECONNRESET`), while HTTP requests were blocked by Alibaba Cloud ICP filing checks. The current solution keeps the browser on HTTPS and lets Nginx inject the private update key server-side.
+
+Task creation:
+
+```text
+Browser
+  -> https://api-fund.fundtracking.online/api/update/async-client
+  -> Nginx injects X-Update-Key
+  -> http://127.0.0.1:8081/api/update/async
+  -> Go backend creates async update task
+  -> Redis stores task status
+```
+
+Task polling:
+
+```text
+Browser
+  -> https://api-fund.fundtracking.online/api/update/tasks-client/{task_id}
+  -> Nginx injects X-Update-Key
+  -> http://127.0.0.1:8081/api/update/tasks/{task_id}
+  -> Go backend reads Redis task status
+```
+
+Verified production logs include:
+
+```text
+POST /api/update/async status=202
+GET /api/update/tasks/{task_id} status=200
+GET /api/funds status=200
+```
 
 ## Environment Variables
 
@@ -360,8 +407,8 @@ curl -i https://api-fund.fundtracking.online/api/funds
 
 ## Project Scope
 
-- This project displays and manages fund tracking data. It is not a trading platform.
-- It should not be described as a financial-grade or enterprise-grade system.
-- It does not use Kubernetes or a microservice architecture.
+- This project displays and manages fund tracking data and does not provide trading features.
+- Keep descriptions focused on the implemented backend, deployment, cache, task, and API work.
+- The current deployment is a single Go backend process behind Nginx; no container orchestration is used.
 - MongoDB Atlas is the primary data store. Redis is used for cache, update coordination, and short-lived task status.
 - Secrets should stay in deployment environments and server-only config files, not in the frontend or repository.
