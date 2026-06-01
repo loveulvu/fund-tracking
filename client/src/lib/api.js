@@ -37,7 +37,7 @@ export const api = {
     }),
 
   getUpdateTask: (taskId) =>
-    fetch(`/api/update/tasks/${encodeURIComponent(taskId)}`),
+    fetch(goApiUrl(`/api/update/tasks-client/${encodeURIComponent(taskId)}`)),
 
   getWatchlist: (token) => fetch(goApiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
