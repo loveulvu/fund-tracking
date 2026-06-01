@@ -306,6 +306,29 @@ func mongoHealthGinHandler(c *gin.Context) {
 		"message": "MongoDB connected",
 	})
 }
+func ginCORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+
+		if origin == "https://www.fundtracking.online" ||
+			origin == "https://fundtracking.online" ||
+			origin == "http://localhost:3000" ||
+			origin == "http://127.0.0.1:3000" {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
+
+		c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Update-Key")
+		c.Header("Access-Control-Allow-Credentials", "false")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
+}
 func main() {
 	if err := initMongo(); err != nil {
 		appLogger.Error("mongo_init_failed", "error", err)
@@ -319,6 +342,7 @@ func main() {
 		defer redisClient.Close()
 	}
 	r := gin.Default()
+	r.Use(ginCORSMiddleware())
 
 	api := r.Group("/api")
 
