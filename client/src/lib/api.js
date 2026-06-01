@@ -32,7 +32,7 @@ export const api = {
   updateFunds: () => fetch(goApiUrl('/api/update')),
 
   startAsyncUpdate: () =>
-    fetch('/api/update/async', {
+    fetch(goApiUrl('/api/update/async-client'), {
       method: 'POST',
     }),
 
