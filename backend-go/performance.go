@@ -93,7 +93,7 @@ func buildPerformanceFundsResponse(ctx context.Context, targetCodes []string, sk
 	}
 
 	for _, fundCode := range targetCodes {
-		performance, err := fetchFundPerformance(fundCode)
+		performance, err := fetchFundPerformance(ctx, fundCode)
 		if err != nil {
 			failedItems = append(failedItems, performanceFailedItem{
 				FundCode: fundCode,
@@ -150,12 +150,12 @@ func buildPerformanceFundsResponse(ctx context.Context, targetCodes []string, sk
 	}
 }
 
-func fetchFundPerformance(fundCode string) (map[string]float64, error) {
+func fetchFundPerformance(ctx context.Context, fundCode string) (map[string]float64, error) {
 	url := fmt.Sprintf(
 		"https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?AppVersion=6.3.8&FCODE=%s&MobileKey=3EA024C2-7F22-408B-95E4-383D38160FB3&OSVersion=14.3&deviceid=3EA024C2-7F22-408B-95E4-383D38160FB3&passportid=3061335960830820&plat=Iphone&product=EFund&version=6.3.6",
 		fundCode,
 	)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}

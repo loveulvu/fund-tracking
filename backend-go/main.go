@@ -90,8 +90,8 @@ func getenvDefault(key string, fallback string) string {
 //		collection := client.Database("fund_tracking").Collection("fund_data")
 //		return client, collection, nil
 //	}
-func findFundsByFilter(filter bson.M) ([]Fund, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func findFundsByFilter(parentCtx context.Context, filter bson.M) ([]Fund, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
 	collection := getFundCollection()
 	findOptions := options.Find().SetProjection(bson.M{
@@ -108,11 +108,11 @@ func findFundsByFilter(filter bson.M) ([]Fund, error) {
 	}
 	return funds, nil
 }
-func loadFundsFromMongoDB() ([]Fund, error) {
-	return findFundsByFilter(bson.M{})
+func loadFundsFromMongoDB(ctx context.Context) ([]Fund, error) {
+	return findFundsByFilter(ctx, bson.M{})
 }
-func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func findFundByCodeInMongoDB(parentCtx context.Context, code string) (Fund, bool, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
 	collection := getFundCollection()
 	filter := bson.M{"fund_code": code}
@@ -130,14 +130,14 @@ func findFundByCodeInMongoDB(code string) (Fund, bool, error) {
 	return fund, true, nil
 }
 
-func searchFundsInMongoDB(query string) ([]Fund, error) {
+func searchFundsInMongoDB(ctx context.Context, query string) ([]Fund, error) {
 	filter := bson.M{
 		"$or": []bson.M{
 			{"fund_code": bson.M{"$regex": query, "$options": "i"}},
 			{"fund_name": bson.M{"$regex": query, "$options": "i"}},
 		},
 	}
-	return findFundsByFilter(filter)
+	return findFundsByFilter(ctx, filter)
 }
 func searchGinHandler(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("query"))
@@ -163,7 +163,7 @@ func searchGinHandler(c *gin.Context) {
 		}
 	}
 
-	funds, err := searchFundsInMongoDB(query)
+	funds, err := searchFundsInMongoDB(ctx, query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "internal_error",
@@ -192,7 +192,7 @@ func searchGinHandler(c *gin.Context) {
 }
 
 func fundsGinHandler(c *gin.Context) {
-	funds, err := loadFundsFromMongoDB()
+	funds, err := loadFundsFromMongoDB(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "internal_error",
@@ -228,7 +228,7 @@ func fundDetailGinHandler(c *gin.Context) {
 		}
 
 	}
-	fund, ok, err := findFundByCodeInMongoDB(code)
+	fund, ok, err := findFundByCodeInMongoDB(ctx, code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "internal_error",

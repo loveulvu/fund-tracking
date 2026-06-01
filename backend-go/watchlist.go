@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -35,12 +34,8 @@ type UpdateWatchlistThresholdRequest struct {
 var errWatchlistExists = errors.New("watchlist item already exists")
 
 func getWatchlistGinHandler(c *gin.Context) {
-	claims, ok := getGinAuthClaims(c)
+	claims, ok := RequireGinAuthClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    "unauthorized",
-			"message": "unauthorized",
-		})
 		return
 	}
 
@@ -60,21 +55,15 @@ func getWatchlistGinHandler(c *gin.Context) {
 		}
 	}
 
-	items, err := findWatchlistByUserID(userID)
+	items, err := findWatchlistByUserID(ctx, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    "internal_error",
-			"message": "failed to fetch watchlist",
-		})
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to fetch watchlist")
 		return
 	}
 
 	data, err := json.Marshal(items)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    "internal_error",
-			"message": "internal server error",
-		})
+		Fail(c, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 
@@ -88,21 +77,14 @@ func getWatchlistGinHandler(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json;charset=utf-8", data)
 }
 func addWatchlistGinHandler(c *gin.Context) {
-	claims, ok := getGinAuthClaims(c)
+	claims, ok := RequireGinAuthClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    "unauthorized",
-			"message": "unauthorized",
-		})
 		return
 	}
 
 	var req AddWatchlistRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "invalid request body",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
 
@@ -110,10 +92,7 @@ func addWatchlistGinHandler(c *gin.Context) {
 	req.FundName = strings.TrimSpace(req.FundName)
 
 	if req.FundCode == "" || req.FundName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "fundCode and fundName are required",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "fundCode and fundName are required")
 		return
 	}
 
@@ -130,41 +109,32 @@ func addWatchlistGinHandler(c *gin.Context) {
 		AddedAt:        time.Now().UTC(),
 	}
 
-	createdItem, err := insertWatchlistItem(item)
+	ctx := c.Request.Context()
+	createdItem, err := insertWatchlistItem(ctx, item)
 	if err != nil {
 		if errors.Is(err, errWatchlistExists) {
-			c.JSON(http.StatusConflict, gin.H{
-				"code":    "conflict",
-				"message": "fund already in watchlist",
-			})
+			Fail(c, http.StatusConflict, "conflict", "fund already in watchlist")
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    "internal_error",
-			"message": "failed to add watchlist item",
-		})
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to add watchlist item")
 		return
 	}
 
-	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
+	invalidateWatchlistCache(ctx, claims.UserID)
 
-	c.JSON(http.StatusCreated, createdItem)
+	Success(c, http.StatusCreated, createdItem)
 }
 
-func insertWatchlistItem(item WatchlistItem) (WatchlistItem, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func insertWatchlistItem(parentCtx context.Context, item WatchlistItem) (WatchlistItem, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
-	client, collection, err := getWatchlistCollection(ctx)
-	if err != nil {
-		return WatchlistItem{}, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getWatchlistCollection()
 	filter := bson.M{
 		"userId":   item.UserID,
 		"fundCode": item.FundCode,
 	}
-	err = collection.FindOne(ctx, filter).Err()
+	err := collection.FindOne(ctx, filter).Err()
 	if err == nil {
 		return WatchlistItem{}, errWatchlistExists
 	}
@@ -181,32 +151,14 @@ func insertWatchlistItem(item WatchlistItem) (WatchlistItem, error) {
 
 	return item, nil
 }
-func getWatchlistCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
-	uri := os.Getenv("MONGO_URI")
-	if uri == "" {
-		uri = "mongodb://127.0.0.1:27017"
-	}
-	clientOptions := options.Client().
-		ApplyURI(uri).
-		SetServerSelectionTimeout(30 * time.Second).
-		SetConnectTimeout(10 * time.Second)
-
-	client, err := mongo.Connect(ctx, clientOptions)
-	if err != nil {
-		return nil, nil, err
-	}
-	collection := client.Database("fund_tracking").Collection("watchlists")
-	return client, collection, nil
+func getWatchlistCollection() *mongo.Collection {
+	return mongoClient.Database("fund_tracking").Collection("watchlists")
 }
-func findWatchlistByUserID(userID string) ([]WatchlistItem, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func findWatchlistByUserID(parentCtx context.Context, userID string) ([]WatchlistItem, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	client, collection, err := getWatchlistCollection(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getWatchlistCollection()
 
 	filter := bson.M{"userId": userID}
 
@@ -227,56 +179,40 @@ func findWatchlistByUserID(userID string) ([]WatchlistItem, error) {
 
 }
 func deleteWatchlistGinHandler(c *gin.Context) {
-	claims, ok := getGinAuthClaims(c)
+	claims, ok := RequireGinAuthClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    "unauthorized",
-			"message": "unauthorized",
-		})
 		return
 	}
 
 	fundCode := strings.TrimSpace(c.Param("fundCode"))
 	if fundCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "fundCode is required",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "fundCode is required")
 		return
 	}
 
-	deleted, err := deleteWatchlistItem(claims.UserID, fundCode)
+	ctx := c.Request.Context()
+	deleted, err := deleteWatchlistItem(ctx, claims.UserID, fundCode)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    "internal_error",
-			"message": "failed to delete watchlist item",
-		})
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to delete watchlist item")
 		return
 	}
 
 	if !deleted {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code":    "not_found",
-			"message": "watchlist item not found",
-		})
+		Fail(c, http.StatusNotFound, "not_found", "watchlist item not found")
 		return
 	}
 
-	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
+	invalidateWatchlistCache(ctx, claims.UserID)
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, http.StatusOK, gin.H{
 		"message": "successfully removed from watchlist",
 	})
 }
 
-func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func deleteWatchlistItem(parentCtx context.Context, userID string, fundCode string) (bool, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
-	client, collection, err := getWatchlistCollection(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getWatchlistCollection()
 	filter := bson.M{
 		"userId":   userID,
 		"fundCode": fundCode,
@@ -288,77 +224,55 @@ func deleteWatchlistItem(userID string, fundCode string) (bool, error) {
 	return result.DeletedCount > 0, nil
 }
 func updateWatchlistThresholdGinHandler(c *gin.Context) {
-	claims, ok := getGinAuthClaims(c)
+	claims, ok := RequireGinAuthClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    "unauthorized",
-			"message": "unauthorized",
-		})
 		return
 	}
 
 	fundCode := strings.TrimSpace(c.Param("fundCode"))
 	if fundCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "fundCode is required",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "fundCode is required")
 		return
 	}
 
 	var req UpdateWatchlistThresholdRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "invalid request body",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
 
 	if req.AlertThreshold == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "invalid_request",
-			"message": "alertThreshold is required",
-		})
+		Fail(c, http.StatusBadRequest, "invalid_request", "alertThreshold is required")
 		return
 	}
 
 	updatedItem, found, err := updateWatchlistThreshold(
+		c.Request.Context(),
 		claims.UserID,
 		fundCode,
 		*req.AlertThreshold,
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    "internal_error",
-			"message": "failed to update watchlist threshold",
-		})
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to update watchlist threshold")
 		return
 	}
 
 	if !found {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code":    "not_found",
-			"message": "watchlist item not found",
-		})
+		Fail(c, http.StatusNotFound, "not_found", "watchlist item not found")
 		return
 	}
 
 	invalidateWatchlistCache(c.Request.Context(), claims.UserID)
 
-	c.JSON(http.StatusOK, updatedItem)
+	Success(c, http.StatusOK, updatedItem)
 }
 
-func updateWatchlistThreshold(userID string, fundCode string, alertThreshold float64) (WatchlistItem, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func updateWatchlistThreshold(parentCtx context.Context, userID string, fundCode string, alertThreshold float64) (WatchlistItem, bool, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	client, collection, err := getWatchlistCollection(ctx)
-	if err != nil {
-		return WatchlistItem{}, false, err
-	}
-	defer client.Disconnect(ctx)
+	collection := getWatchlistCollection()
 
 	filter := bson.M{
 		"userId":   userID,

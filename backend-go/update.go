@@ -83,10 +83,7 @@ type ErrorResponse struct {
 
 func updateFundsGinHandler(c *gin.Context) {
 	if !requireUpdateAPIKey(c.Request) {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "unauthorized",
-			"message": "missing or invalid token",
-		})
+		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 
@@ -96,18 +93,12 @@ func updateFundsGinHandler(c *gin.Context) {
 	locked, lockToken, err := acquireUpdateLock(ctx)
 	if err != nil {
 		appLogger.Error("fund_update_lock_failed", "mode", "sync", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "redis_lock_error",
-			"message": "failed to acquire update lock",
-		})
+		ErrorFail(c, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
 		return
 	}
 
 	if !locked {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":   "update_locked",
-			"message": "fund update is already running",
-		})
+		ErrorFail(c, http.StatusConflict, "update_locked", "fund update is already running")
 		return
 	}
 
@@ -139,10 +130,7 @@ func updateFundsGinHandler(c *gin.Context) {
 }
 func updateFundsAsyncGinHandler(c *gin.Context) {
 	if !requireUpdateAPIKey(c.Request) {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "unauthorized",
-			"message": "missing or invalid token",
-		})
+		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 
@@ -152,18 +140,12 @@ func updateFundsAsyncGinHandler(c *gin.Context) {
 	locked, lockToken, err := acquireUpdateLock(lockCtx)
 	if err != nil {
 		appLogger.Error("fund_update_lock_failed", "mode", "async", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "redis_lock_error",
-			"message": "failed to acquire update lock",
-		})
+		ErrorFail(c, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
 		return
 	}
 
 	if !locked {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":   "update_locked",
-			"message": "fund update is already running",
-		})
+		ErrorFail(c, http.StatusConflict, "update_locked", "fund update is already running")
 		return
 	}
 
@@ -177,10 +159,7 @@ func updateFundsAsyncGinHandler(c *gin.Context) {
 
 	if err := saveUpdateTask(c.Request.Context(), task); err != nil {
 		appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "redis_task_error",
-			"message": "failed to save update task",
-		})
+		ErrorFail(c, http.StatusInternalServerError, "redis_task_error", "failed to save update task")
 		return
 	}
 
@@ -249,37 +228,25 @@ func updateFundsAsyncGinHandler(c *gin.Context) {
 }
 func updateTaskStatusGinHandler(c *gin.Context) {
 	if !requireUpdateAPIKey(c.Request) {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "unauthorized",
-			"message": "missing or invalid token",
-		})
+		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
 		return
 	}
 
 	taskID := strings.TrimSpace(c.Param("id"))
 	if taskID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid_request",
-			"message": "task_id is required",
-		})
+		ErrorFail(c, http.StatusBadRequest, "invalid_request", "task_id is required")
 		return
 	}
 
 	task, ok, err := loadUpdateTask(c.Request.Context(), taskID)
 	if err != nil {
 		appLogger.Error("fund_update_task_load_failed", "task_id", taskID, "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "redis_task_error",
-			"message": "failed to load update task",
-		})
+		ErrorFail(c, http.StatusInternalServerError, "redis_task_error", "failed to load update task")
 		return
 	}
 
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "not_found",
-			"message": "task not found",
-		})
+		ErrorFail(c, http.StatusNotFound, "not_found", "task not found")
 		return
 	}
 

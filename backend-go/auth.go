@@ -462,12 +462,8 @@ type MeResponse struct {
 }
 
 func meGinHandler(c *gin.Context) {
-	claims, ok := getGinAuthClaims(c)
+	claims, ok := RequireGinAuthClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code":    "unauthorized",
-			"message": "unauthorized",
-		})
 		return
 	}
 
@@ -479,10 +475,7 @@ func meGinHandler(c *gin.Context) {
 
 		user, found, err := findUserByID(ctx, claims.UserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    "internal_error",
-				"message": "database error",
-			})
+			Fail(c, http.StatusInternalServerError, "internal_error", "database error")
 			return
 		}
 

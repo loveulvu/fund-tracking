@@ -87,7 +87,7 @@ func buildEnrichFundsResponse(ctx context.Context, targetCodes []string, skipped
 	}
 
 	for _, fundCode := range targetCodes {
-		metadata, err := fetchFundMetadata(fundCode)
+		metadata, err := fetchFundMetadata(ctx, fundCode)
 		if err != nil {
 			failedItems = append(failedItems, enrichFailedItem{
 				FundCode: fundCode,
@@ -152,12 +152,12 @@ func buildEnrichFundsResponse(ctx context.Context, targetCodes []string, skipped
 	}
 }
 
-func fetchFundMetadata(fundCode string) (fundMetadata, error) {
+func fetchFundMetadata(ctx context.Context, fundCode string) (fundMetadata, error) {
 	url := fmt.Sprintf(
 		"http://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=%s&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0",
 		fundCode,
 	)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fundMetadata{}, err
 	}

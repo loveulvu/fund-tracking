@@ -53,7 +53,7 @@ func importFundGinHandler(c *gin.Context) {
 }
 
 func importFundByCode(ctx context.Context, fundCode string) (importFundResponse, int, error) {
-	existingFund, ok, err := findFundByCodeInMongoDB(fundCode)
+	existingFund, ok, err := findFundByCodeInMongoDB(ctx, fundCode)
 	if err != nil {
 		return importFundResponse{}, http.StatusInternalServerError, err
 	}
@@ -78,7 +78,7 @@ func importFundByCode(ctx context.Context, fundCode string) (importFundResponse,
 	warnings := make([]string, 0)
 	metadataFields := make([]string, 0)
 
-	metadata, err := fetchFundMetadata(fundCode)
+	metadata, err := fetchFundMetadata(ctx, fundCode)
 	if err != nil {
 		status = "partial_success"
 		warnings = append(warnings, "metadata enrichment failed: "+err.Error())
