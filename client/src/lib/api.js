@@ -35,12 +35,12 @@ export const api = {
   updateFunds: () => fetch(goApiUrl('/api/update')),
 
   startAsyncUpdate: () =>
-    fetch('/api/update/async-client', {
+    fetch(goApiUrl('/api/update/async-client'), {
       method: 'POST',
     }),
 
   getUpdateTask: (taskId) =>
-    fetch(`/api/update/tasks-client/${encodeURIComponent(taskId)}`),
+    fetch(goApiUrl(`/api/update/tasks-client/${encodeURIComponent(taskId)}`)),
 
   getWatchlist: (token) => fetch(goApiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
