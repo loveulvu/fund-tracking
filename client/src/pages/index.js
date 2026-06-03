@@ -121,6 +121,135 @@ function EmptyState({ title, message }) {
   );
 }
 
+function normalizeHistoryPoint(point) {
+  const date = point?.date || point?.net_value_date || '';
+  const netValue = Number(point?.net_value);
+
+  if (!date || !Number.isFinite(netValue) || netValue <= 0) {
+    return null;
+  }
+
+  return { date, netValue };
+}
+
+function buildGrowthSeries(fund, history) {
+  const points = (Array.isArray(history) ? history : [])
+    .map(normalizeHistoryPoint)
+    .filter(Boolean);
+
+  if (points.length === 0) return null;
+
+  const firstNetValue = points[0].netValue;
+  if (!Number.isFinite(firstNetValue) || firstNetValue <= 0) return null;
+
+  return {
+    code: fund.code,
+    name: fund.name || fund.code,
+    points: points.map((point) => ({
+      date: point.date,
+      growth: ((point.netValue - firstNetValue) / firstNetValue) * 100,
+    })),
+  };
+}
+
+function buildGrowthPath(points, dateIndex, minGrowth, maxGrowth, width, height, padding) {
+  const span = maxGrowth - minGrowth || 1;
+  const xSpan = Math.max(dateIndex.size - 1, 1);
+
+  return points.map((point, index) => {
+    const datePosition = dateIndex.size === 1 ? 0.5 : dateIndex.get(point.date) / xSpan;
+    const x = padding + datePosition * (width - padding * 2);
+    const y = padding + ((maxGrowth - point.growth) / span) * (height - padding * 2);
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(' ');
+}
+
+function FundGrowthChart({ series }) {
+  if (!series.length) {
+    return (
+      <div className={styles.growthEmpty}>
+        暂无可展示的历史净值数据。
+      </div>
+    );
+  }
+
+  const width = 720;
+  const height = 260;
+  const padding = 34;
+  const colors = ['#2563eb', '#16a34a'];
+  const dates = Array.from(new Set(series.flatMap((item) => item.points.map((point) => point.date)))).sort();
+  const dateIndex = new Map(dates.map((date, index) => [date, index]));
+  const growthValues = series.flatMap((item) => item.points.map((point) => point.growth));
+  const minGrowth = Math.min(0, ...growthValues);
+  const maxGrowth = Math.max(0, ...growthValues);
+  const firstDate = dates[0] || '';
+  const lastDate = dates[dates.length - 1] || '';
+
+  return (
+    <div className={styles.growthChart}>
+      <div className={styles.growthLegend}>
+        {series.map((item, index) => {
+          const latestPoint = item.points[item.points.length - 1];
+          return (
+            <span key={item.code}>
+              <i style={{ background: colors[index] }} aria-hidden="true" />
+              {item.name}
+              <strong className={getChangeClass(latestPoint?.growth)}>
+                {formatPercent(latestPoint?.growth)}
+              </strong>
+            </span>
+          );
+        })}
+      </div>
+
+      <svg className={styles.growthSvg} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="基金涨幅曲线">
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} />
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} />
+        <line
+          className={styles.growthZeroLine}
+          x1={padding}
+          y1={padding + ((maxGrowth - 0) / (maxGrowth - minGrowth || 1)) * (height - padding * 2)}
+          x2={width - padding}
+          y2={padding + ((maxGrowth - 0) / (maxGrowth - minGrowth || 1)) * (height - padding * 2)}
+        />
+        <text x={padding} y={20}>{`${maxGrowth.toFixed(2)}%`}</text>
+        <text x={padding} y={height - 8}>{`${minGrowth.toFixed(2)}%`}</text>
+
+        {series.map((item, seriesIndex) => {
+          const path = buildGrowthPath(item.points, dateIndex, minGrowth, maxGrowth, width, height, padding);
+          const color = colors[seriesIndex];
+
+          return (
+            <g key={item.code}>
+              {item.points.length > 1 && <path d={path} style={{ stroke: color }} />}
+              {item.points.map((point, pointIndex) => {
+                const xSpan = Math.max(dateIndex.size - 1, 1);
+                const datePosition = dateIndex.size === 1 ? 0.5 : dateIndex.get(point.date) / xSpan;
+                const x = padding + datePosition * (width - padding * 2);
+                const y = padding + ((maxGrowth - point.growth) / (maxGrowth - minGrowth || 1)) * (height - padding * 2);
+                return (
+                  <circle
+                    key={`${point.date}-${pointIndex}`}
+                    cx={x}
+                    cy={y}
+                    r="3.5"
+                    style={{ stroke: color }}
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+
+      <div className={styles.growthAxis}>
+        <span>{firstDate}</span>
+        <span>{lastDate}</span>
+      </div>
+    </div>
+  );
+}
+
 function FundDetailPanel({ fund, onClose }) {
   if (!fund) return null;
 
@@ -192,6 +321,9 @@ export default function Home() {
   const [updateMessage, setUpdateMessage] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [growthSeries, setGrowthSeries] = useState([]);
+  const [growthLoading, setGrowthLoading] = useState(false);
+  const [growthError, setGrowthError] = useState('');
 
   const isUpdateRunning = (
     updateStatus === 'pending' ||
@@ -324,6 +456,92 @@ export default function Home() {
       clearTimeout(timer);
     };
   }, [updateTaskId]);
+
+  useEffect(() => {
+    if (!authReady || loading) return undefined;
+
+    let active = true;
+
+    async function fetchGrowthSeries() {
+      try {
+        setGrowthLoading(true);
+        setGrowthError('');
+
+        let candidates = [];
+        const token = localStorage.getItem('token');
+
+        if (token) {
+          try {
+            const response = await api.getWatchlist(token);
+            if (response.ok) {
+              const watchlist = await response.json();
+              candidates = (Array.isArray(watchlist) ? watchlist : [])
+                .slice(0, 2)
+                .map((item) => ({
+                  code: String(item.fundCode || '').trim(),
+                  name: item.fundName || item.fundCode,
+                }))
+                .filter((item) => item.code);
+            }
+          } catch (err) {
+            console.error('Error fetching watchlist for growth chart:', err);
+          }
+        }
+
+        if (candidates.length === 0 && funds[0]?.fund_code) {
+          candidates = [{
+            code: String(funds[0].fund_code).trim(),
+            name: funds[0].fund_name || funds[0].fund_code,
+          }];
+        }
+
+        const uniqueCandidates = [];
+        const seenCodes = new Set();
+        for (const candidate of candidates) {
+          if (!candidate.code || seenCodes.has(candidate.code)) continue;
+          seenCodes.add(candidate.code);
+          uniqueCandidates.push(candidate);
+          if (uniqueCandidates.length === 2) break;
+        }
+
+        if (uniqueCandidates.length === 0) {
+          if (active) {
+            setGrowthSeries([]);
+          }
+          return;
+        }
+
+        const loadedSeries = await Promise.all(uniqueCandidates.map(async (fund) => {
+          try {
+            const history = await api.getFundHistory(fund.code, '30d');
+            return buildGrowthSeries(fund, history);
+          } catch (err) {
+            console.error('Error fetching fund history for growth chart:', fund.code, err);
+            return null;
+          }
+        }));
+
+        if (active) {
+          setGrowthSeries(loadedSeries.filter(Boolean));
+        }
+      } catch (err) {
+        if (active) {
+          setGrowthSeries([]);
+          setGrowthError(err.message || '历史净值数据加载失败');
+        }
+      } finally {
+        if (active) {
+          setGrowthLoading(false);
+        }
+      }
+    }
+
+    fetchGrowthSeries();
+
+    return () => {
+      active = false;
+    };
+  }, [authReady, loading, funds]);
 
   const filteredFunds = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -487,17 +705,18 @@ export default function Home() {
             <article className={styles.chartPanel}>
               <div className={styles.panelHeader}>
                 <div>
-                  <h2>组合收益趋势</h2>
-                  <p>需要接入持仓份额和历史净值快照后展示</p>
+                  <h2>基金涨幅曲线</h2>
+                  <p>基于基金历史净值计算阶段涨幅，不计算持仓本金。</p>
                 </div>
-                <span className={styles.panelBadgeMuted}>暂未接入</span>
+                <span className={styles.panelBadge}>30 天</span>
               </div>
-              <div className={[styles.chartPlaceholder, styles.trendEmpty].join(' ')}>
-                <div className={styles.placeholderCopy}>
-                  <strong>暂无组合收益数据</strong>
-                  <p>当前系统只展示基金净值和阶段表现，暂未记录用户持仓份额与历史收益曲线。</p>
-                </div>
-              </div>
+              {growthLoading ? (
+                <div className={styles.growthEmpty}>正在加载历史净值数据</div>
+              ) : growthError ? (
+                <div className={styles.growthEmpty}>{growthError}</div>
+              ) : (
+                <FundGrowthChart series={growthSeries} />
+              )}
             </article>
 
             <article className={styles.panel}>
