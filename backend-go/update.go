@@ -512,6 +512,10 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 		}
 	}
 
+	if err := cleanupOldFundDailySnapshots(ctx); err != nil {
+		appLogger.Error("fund_snapshot_cleanup_failed", "error", err)
+	}
+
 	status := "success"
 	if len(failed) > 0 && updated > 0 {
 		status = "partial_success"
@@ -569,6 +573,13 @@ func updateSingleFund(ctx context.Context, fundCode string) updateFundResult {
 			Stage: "upsert",
 			Err:   err,
 		}
+	}
+	if err := upsertFundDailySnapshot(ctx, fund); err != nil {
+		appLogger.Error("fund_snapshot_upsert_failed",
+			"fund_code", fundCode,
+			"net_value_date", fund.NetValueDate,
+			"error", err,
+		)
 	}
 	return updateFundResult{
 		Code: fundCode,

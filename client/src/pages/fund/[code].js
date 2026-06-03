@@ -94,6 +94,86 @@ function getCodeFromPath(asPath) {
   return '';
 }
 
+function normalizeHistoryPoint(point) {
+  return {
+    date: point?.date || point?.net_value_date || '',
+    netValue: Number(point?.net_value),
+    dayGrowth: point?.day_growth,
+  };
+}
+
+function buildTrendPath(points, width, height, padding) {
+  const values = points.map((point) => point.netValue);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const xSpan = Math.max(points.length - 1, 1);
+
+  return points.map((point, index) => {
+    const x = padding + (index / xSpan) * (width - padding * 2);
+    const y = padding + ((max - point.netValue) / span) * (height - padding * 2);
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(' ');
+}
+
+function TrendChart({ points }) {
+  const normalizedPoints = points
+    .map(normalizeHistoryPoint)
+    .filter((point) => point.date && Number.isFinite(point.netValue));
+
+  if (normalizedPoints.length === 0) {
+    return (
+      <div className={styles.trendEmptyInline}>
+        暂无历史快照数据
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 220;
+  const padding = 28;
+  const path = buildTrendPath(normalizedPoints, width, height, padding);
+  const values = normalizedPoints.map((point) => point.netValue);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const latest = normalizedPoints[normalizedPoints.length - 1];
+  const firstDate = normalizedPoints[0]?.date || '';
+  const lastDate = latest?.date || '';
+
+  return (
+    <div className={styles.trendChart}>
+      <div className={styles.trendChartMeta}>
+        <span>{firstDate}</span>
+        <strong>{latest.netValue.toFixed(4)}</strong>
+        <span>{lastDate}</span>
+      </div>
+      <svg className={styles.trendSvg} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="基金净值趋势">
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} />
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} />
+        <text x={padding} y={18}>{max.toFixed(4)}</text>
+        <text x={padding} y={height - 8}>{min.toFixed(4)}</text>
+        {normalizedPoints.length === 1 ? (
+          <circle cx={width / 2} cy={height / 2} r="5" />
+        ) : (
+          <path d={path} />
+        )}
+        {normalizedPoints.map((point, index) => {
+          const span = Math.max(max - min, 1);
+          const xSpan = Math.max(normalizedPoints.length - 1, 1);
+          const x = padding + (index / xSpan) * (width - padding * 2);
+          const y = padding + ((max - point.netValue) / span) * (height - padding * 2);
+          return <circle key={`${point.date}-${index}`} cx={x} cy={y} r="3" />;
+        })}
+      </svg>
+      <div className={styles.trendAxis}>
+        {normalizedPoints.map((point) => (
+          <span key={point.date}>{point.date.slice(5)}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function FundDetailPage() {
   const router = useRouter();
   const code = useMemo(() => {
@@ -107,6 +187,10 @@ export default function FundDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notFound, setNotFound] = useState(false);
+  const [historyRange, setHistoryRange] = useState('7d');
+  const [historyPoints, setHistoryPoints] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   useEffect(() => {
     if (!router.isReady && !code) return;
@@ -162,6 +246,39 @@ export default function FundDetailPage() {
     };
   }, [router.isReady, code]);
 
+  useEffect(() => {
+    if (!router.isReady && !code) return;
+    if (!code) return;
+
+    let active = true;
+
+    async function fetchFundHistory() {
+      try {
+        setHistoryLoading(true);
+        setHistoryError('');
+        const data = await api.getFundHistory(code, historyRange);
+        if (active) {
+          setHistoryPoints(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        if (active) {
+          setHistoryPoints([]);
+          setHistoryError(err.message || '历史数据加载失败');
+        }
+      } finally {
+        if (active) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    fetchFundHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [router.isReady, code, historyRange]);
+
   return (
     <main className={styles.fundPageShell}>
       <section className={styles.fundPage}>
@@ -215,6 +332,37 @@ export default function FundDetailPage() {
                 </strong>
               </article>
             </section>
+
+            <article className={[styles.panel, styles.trendPanel].join(' ')}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>净值趋势</h2>
+                  <p>历史快照来自 /api/funds/{code}/history，按净值日期升序展示</p>
+                </div>
+                <div className={styles.rangeToggle} role="group" aria-label="历史范围">
+                  {['7d', '30d'].map((range) => (
+                    <button
+                      key={range}
+                      className={[
+                        styles.rangeButton,
+                        historyRange === range ? styles.rangeButtonActive : '',
+                      ].join(' ')}
+                      type="button"
+                      onClick={() => setHistoryRange(range)}
+                    >
+                      {range === '7d' ? '近 7 天' : '近 30 天'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {historyLoading ? (
+                <div className={styles.trendEmptyInline}>正在加载历史数据</div>
+              ) : historyError ? (
+                <div className={styles.trendEmptyInline}>{historyError}</div>
+              ) : (
+                <TrendChart points={historyPoints} />
+              )}
+            </article>
 
             <section className={styles.fundDetailGrid}>
               <article className={styles.panel}>

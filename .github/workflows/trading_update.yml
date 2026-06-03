@@ -3,7 +3,7 @@ name: Fund Data Update (Weekday Evening)
 on:
   schedule:
     # Beijing/Japan 20:00 ~= UTC 11:00, Monday-Friday
-    - cron: "0 11 * * 1-5"
+    - cron: "17 11 * * 1-5"
   workflow_dispatch:
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
           curl --fail --show-error --silent \
             --max-time 120 \
             --retry 2 --retry-delay 3 \
+            -X POST \
             -H "X-Update-Key: ${UPDATE_API_KEY}" \
             -o update-response.json \
             "$URL"

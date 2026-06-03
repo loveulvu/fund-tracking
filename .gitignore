@@ -1,4 +1,6 @@
 .env
+backend-go/.env
+client/.env.local
 __pycache__/
 .venv/
 *.log

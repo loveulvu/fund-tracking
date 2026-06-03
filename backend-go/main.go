@@ -65,6 +65,9 @@ func initMongo() error {
 	}
 	mongoClient = client
 	fundCollection = client.Database("fund_tracking").Collection("fund_data")
+	if err := ensureFundDailySnapshotIndexes(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 func getFundCollection() *mongo.Collection {
@@ -330,6 +333,8 @@ func ginCORSMiddleware() gin.HandlerFunc {
 	}
 }
 func main() {
+	loadEnv()
+
 	if err := initMongo(); err != nil {
 		appLogger.Error("mongo_init_failed", "error", err)
 		os.Exit(1)
@@ -366,6 +371,7 @@ func main() {
 	api.POST("/alerts/send", alertsSendGinHandler)
 
 	api.GET("/funds/search", searchGinHandler)
+	api.GET("/funds/:code/history", fundHistoryGinHandler)
 	api.GET("/funds", fundsGinHandler)
 	api.GET("/fund/:code", fundDetailGinHandler)
 	api.GET("/search_proxy", searchGinHandler)

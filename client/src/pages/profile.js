@@ -24,6 +24,38 @@ function formatMarketValue(value) {
   return value;
 }
 
+function formatNetValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return '暂无数据';
+  return number.toFixed(4);
+}
+
+function getPurchaseDate(item) {
+  return item?.purchase_date || item?.purchaseDate || '';
+}
+
+function getPurchaseNetValue(item) {
+  return item?.purchase_net_value ?? item?.purchaseNetValue;
+}
+
+function calculateHoldingReturn(currentNetValue, purchaseNetValue) {
+  const current = Number(currentNetValue);
+  const purchase = Number(purchaseNetValue);
+  if (!Number.isFinite(current) || !Number.isFinite(purchase) || purchase <= 0) {
+    return null;
+  }
+  return ((current - purchase) / purchase) * 100;
+}
+
+function isAlertTriggered(dayGrowth, alertThreshold) {
+  const growth = Number(dayGrowth);
+  const threshold = Number(alertThreshold);
+  if (!Number.isFinite(growth) || !Number.isFinite(threshold) || threshold === 0) {
+    return false;
+  }
+  return Math.abs(growth) >= Math.abs(threshold);
+}
+
 function getChangeClass(value) {
   if (value === null || value === undefined) return styles.neutral;
   if (typeof value === 'string' && value.trim() === '') return styles.neutral;
@@ -74,6 +106,8 @@ export default function Profile() {
   const [error, setError] = useState('');
   const [editingThreshold, setEditingThreshold] = useState(null);
   const [newThreshold, setNewThreshold] = useState('');
+  const [editingPurchaseDate, setEditingPurchaseDate] = useState(null);
+  const [newPurchaseDate, setNewPurchaseDate] = useState('');
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -198,6 +232,33 @@ export default function Profile() {
     }
   };
 
+  const handleUpdatePurchaseDate = async (fundCode) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newPurchaseDate)) {
+      alert('请输入 YYYY-MM-DD 格式的购买日期。');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await api.updateWatchlistPurchaseDate(token, fundCode, newPurchaseDate);
+
+      if (response.ok) {
+        const updatedItem = await response.json();
+        setWatchlist(watchlist.map((item) => (
+          item.fundCode === fundCode ? updatedItem : item
+        )));
+        setEditingPurchaseDate(null);
+        setNewPurchaseDate('');
+      } else {
+        const data = await response.json();
+        alert(data.message || data.error || '购买日期修改失败。');
+      }
+    } catch (err) {
+      console.error('Error updating purchase date:', err);
+      alert('购买日期修改失败。');
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -280,10 +341,12 @@ export default function Profile() {
               <thead>
                 <tr>
                   <th>基金</th>
-                  <th>净值</th>
+                  <th>购买日期</th>
+                  <th>购买净值</th>
+                  <th>当前净值</th>
+                  <th>持有收益率</th>
                   <th>日涨跌</th>
-                  <th>近 1 月</th>
-                  <th>近 1 年</th>
+                  <th>阈值状态</th>
                   <th>提醒阈值</th>
                   <th>操作</th>
                 </tr>
@@ -292,6 +355,12 @@ export default function Profile() {
                 {watchlist.map((item) => {
                   const fund = fundData[item.fundCode];
                   const hasMarketData = Boolean(fund?.fund_code);
+                  const purchaseDate = getPurchaseDate(item);
+                  const purchaseNetValue = getPurchaseNetValue(item);
+                  const holdingReturn = hasMarketData
+                    ? calculateHoldingReturn(fund.net_value, purchaseNetValue)
+                    : null;
+                  const alertTriggered = hasMarketData && isAlertTriggered(fund.day_growth, item.alertThreshold);
 
                   return (
                     <tr key={item.fundCode}>
@@ -305,6 +374,47 @@ export default function Profile() {
                         </div>
                       </td>
                       <td>
+                        {editingPurchaseDate === item.fundCode ? (
+                          <div className={styles.dateEditorInline}>
+                            <input
+                              type="date"
+                              value={newPurchaseDate}
+                              onChange={(event) => setNewPurchaseDate(event.target.value)}
+                            />
+                            <button
+                              className={styles.primaryButtonSmall}
+                              type="button"
+                              onClick={() => handleUpdatePurchaseDate(item.fundCode)}
+                            >
+                              保存
+                            </button>
+                            <button
+                              className={styles.secondaryButtonSmall}
+                              type="button"
+                              onClick={() => {
+                                setEditingPurchaseDate(null);
+                                setNewPurchaseDate('');
+                              }}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className={styles.thresholdButton}
+                            type="button"
+                            onClick={() => {
+                              setEditingPurchaseDate(item.fundCode);
+                              setNewPurchaseDate(purchaseDate || '');
+                            }}
+                          >
+                            {purchaseDate || '设置日期'}
+                          </button>
+                        )}
+                        <small className={styles.mutedBlock}>添加于 {formatDate(item.addedAt)}</small>
+                      </td>
+                      <td>{formatNetValue(purchaseNetValue)}</td>
+                      <td>
                         {hasMarketData ? (
                           <>
                             <strong>{formatMarketValue(fund.net_value)}</strong>
@@ -313,6 +423,9 @@ export default function Profile() {
                         ) : (
                           <span className={styles.mutedText}>暂无行情数据</span>
                         )}
+                      </td>
+                      <td className={holdingReturn === null ? styles.neutral : getChangeClass(holdingReturn)}>
+                        {holdingReturn === null ? '暂无数据' : formatPercent(holdingReturn)}
                       </td>
                       <td>
                         {hasMarketData ? (
@@ -323,11 +436,13 @@ export default function Profile() {
                           <span className={styles.mutedText}>暂无行情数据</span>
                         )}
                       </td>
-                      <td className={hasMarketData ? getChangeClass(fund.month_growth) : styles.neutral}>
-                        {hasMarketData ? formatPercent(fund.month_growth) : '暂无行情数据'}
-                      </td>
-                      <td className={hasMarketData ? getChangeClass(fund.year_growth) : styles.neutral}>
-                        {hasMarketData ? formatPercent(fund.year_growth) : '暂无行情数据'}
+                      <td>
+                        <span className={[
+                          styles.changePill,
+                          alertTriggered ? styles.toneNegative : styles.toneNeutral,
+                        ].join(' ')}>
+                          {alertTriggered ? '已触发' : '未触发'}
+                        </span>
                       </td>
                       <td>
                         {editingThreshold === item.fundCode ? (
@@ -368,7 +483,6 @@ export default function Profile() {
                             {item.alertThreshold}% 修改
                           </button>
                         )}
-                        <small className={styles.mutedBlock}>添加于 {formatDate(item.addedAt)}</small>
                       </td>
                       <td>
                         <button

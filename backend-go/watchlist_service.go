@@ -84,12 +84,25 @@ func addWatchlistService(ctx context.Context, userID string, req AddWatchlistReq
 		alertThreshold = *req.AlertThreshold
 	}
 
+	fund, found, err := findFundByCodeInMongoDB(ctx, fundCode)
+	if err != nil {
+		return WatchlistItem{}, err
+	}
+	if !found || fund.NetValue <= 0 {
+		return WatchlistItem{}, watchlistInputError{message: "current fund net_value is unavailable"}
+	}
+	if strings.TrimSpace(fund.FundName) != "" {
+		fundName = strings.TrimSpace(fund.FundName)
+	}
+
 	item := WatchlistItem{
-		UserID:         userID,
-		FundCode:       fundCode,
-		FundName:       fundName,
-		AlertThreshold: alertThreshold,
-		AddedAt:        time.Now().UTC(),
+		UserID:           userID,
+		FundCode:         fundCode,
+		FundName:         fundName,
+		AlertThreshold:   alertThreshold,
+		PurchaseDate:     time.Now().UTC().Format("2006-01-02"),
+		PurchaseNetValue: fund.NetValue,
+		AddedAt:          time.Now().UTC(),
 	}
 
 	createdItem, err := insertWatchlistItem(ctx, item)
@@ -126,11 +139,32 @@ func updateWatchlistThresholdService(ctx context.Context, userID string, fundCod
 		return WatchlistItem{}, watchlistInputError{message: "fundCode is required"}
 	}
 
-	if req.AlertThreshold == nil {
-		return WatchlistItem{}, watchlistInputError{message: "alertThreshold is required"}
+	purchaseDate := requestedPurchaseDate(req)
+	if req.AlertThreshold == nil && purchaseDate == nil {
+		return WatchlistItem{}, watchlistInputError{message: "alertThreshold or purchase_date is required"}
 	}
 
-	updatedItem, found, err := updateWatchlistThreshold(ctx, userID, fundCode, *req.AlertThreshold)
+	updateFields := map[string]any{}
+	if req.AlertThreshold != nil {
+		updateFields["alertThreshold"] = *req.AlertThreshold
+	}
+	if purchaseDate != nil {
+		parsedDate, err := parsePurchaseDate(*purchaseDate)
+		if err != nil {
+			return WatchlistItem{}, err
+		}
+		snapshot, found, err := findPurchaseSnapshot(ctx, fundCode, parsedDate)
+		if err != nil {
+			return WatchlistItem{}, err
+		}
+		if !found || snapshot.NetValue <= 0 {
+			return WatchlistItem{}, watchlistInputError{message: "purchase net value is unavailable for the requested date"}
+		}
+		updateFields["purchase_date"] = snapshot.NetValueDate
+		updateFields["purchase_net_value"] = snapshot.NetValue
+	}
+
+	updatedItem, found, err := updateWatchlistItem(ctx, userID, fundCode, updateFields)
 	if err != nil {
 		return WatchlistItem{}, err
 	}
@@ -141,6 +175,25 @@ func updateWatchlistThresholdService(ctx context.Context, userID string, fundCod
 
 	invalidateWatchlistCache(ctx, userID)
 	return updatedItem, nil
+}
+
+func requestedPurchaseDate(req UpdateWatchlistThresholdRequest) *string {
+	if req.PurchaseDate != nil {
+		return req.PurchaseDate
+	}
+	return req.PurchaseDateCamel
+}
+
+func parsePurchaseDate(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", watchlistInputError{message: "purchase_date is required"}
+	}
+	parsed, err := time.Parse("2006-01-02", trimmed)
+	if err != nil {
+		return "", watchlistInputError{message: "purchase_date must use YYYY-MM-DD"}
+	}
+	return parsed.Format("2006-01-02"), nil
 }
 
 func watchlistInputErrorMessage(err error, fallback string) string {

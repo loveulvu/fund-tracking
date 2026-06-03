@@ -9,11 +9,13 @@ import (
 )
 
 type WatchlistItem struct {
-	UserID         string    `bson:"userId" json:"userId"`
-	FundCode       string    `bson:"fundCode" json:"fundCode"`
-	FundName       string    `bson:"fundName" json:"fundName"`
-	AlertThreshold float64   `bson:"alertThreshold" json:"alertThreshold"`
-	AddedAt        time.Time `bson:"addedAt" json:"addedAt"`
+	UserID           string    `bson:"userId" json:"userId"`
+	FundCode         string    `bson:"fundCode" json:"fundCode"`
+	FundName         string    `bson:"fundName" json:"fundName"`
+	AlertThreshold   float64   `bson:"alertThreshold" json:"alertThreshold"`
+	PurchaseDate     string    `bson:"purchase_date" json:"purchase_date"`
+	PurchaseNetValue float64   `bson:"purchase_net_value" json:"purchase_net_value"`
+	AddedAt          time.Time `bson:"addedAt" json:"addedAt"`
 }
 type AddWatchlistRequest struct {
 	FundCode       string   `json:"fundCode"`
@@ -21,7 +23,9 @@ type AddWatchlistRequest struct {
 	AlertThreshold *float64 `json:"alertThreshold"`
 }
 type UpdateWatchlistThresholdRequest struct {
-	AlertThreshold *float64 `json:"alertThreshold"`
+	AlertThreshold    *float64 `json:"alertThreshold"`
+	PurchaseDate      *string  `json:"purchase_date"`
+	PurchaseDateCamel *string  `json:"purchaseDate"`
 }
 
 func getWatchlistGinHandler(c *gin.Context) {
@@ -107,7 +111,7 @@ func updateWatchlistThresholdGinHandler(c *gin.Context) {
 		handleWatchlistError(c, err, watchlistErrorMessages{
 			Invalid:  "invalid watchlist request",
 			NotFound: "watchlist item not found",
-			Internal: "failed to update watchlist threshold",
+			Internal: "failed to update watchlist item",
 		})
 		return
 	}

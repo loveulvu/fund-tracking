@@ -26,18 +26,21 @@ export const api = {
   getFund: (fundCode) =>
     fetch(goApiUrl(`/api/fund/${fundCode}`)),
 
+  getFundHistory: (fundCode, range = '7d') =>
+    fetchGoJson(`/api/funds/${encodeURIComponent(fundCode)}/history?range=${encodeURIComponent(range)}`),
+
   searchFunds: (query) =>
     fetch(goApiUrl(`/api/search_proxy?query=${encodeURIComponent(query)}`)),
 
   updateFunds: () => fetch(goApiUrl('/api/update')),
 
   startAsyncUpdate: () =>
-    fetch(goApiUrl('/api/update/async-client'), {
+    fetch('/api/update/async-client', {
       method: 'POST',
     }),
 
   getUpdateTask: (taskId) =>
-    fetch(goApiUrl(`/api/update/tasks-client/${encodeURIComponent(taskId)}`)),
+    fetch(`/api/update/tasks-client/${encodeURIComponent(taskId)}`),
 
   getWatchlist: (token) => fetch(goApiUrl('/api/watchlist'), {
     headers: { 'Authorization': `Bearer ${token}` }
@@ -57,14 +60,20 @@ export const api = {
     headers: { 'Authorization': `Bearer ${token}` }
   }),
 
-  updateWatchlistThreshold: (token, fundCode, threshold) => fetch(goApiUrl(`/api/watchlist/${fundCode}`), {
+  updateWatchlist: (token, fundCode, data) => fetch(goApiUrl(`/api/watchlist/${fundCode}`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ alertThreshold: threshold })
+    body: JSON.stringify(data)
   }),
+
+  updateWatchlistThreshold: (token, fundCode, threshold) =>
+    api.updateWatchlist(token, fundCode, { alertThreshold: threshold }),
+
+  updateWatchlistPurchaseDate: (token, fundCode, purchaseDate) =>
+    api.updateWatchlist(token, fundCode, { purchase_date: purchaseDate }),
 
   importFund: (token, fundCode) => fetch(goApiUrl('/api/funds/import'), {
     method: 'POST',

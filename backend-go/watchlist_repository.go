@@ -86,7 +86,7 @@ func deleteWatchlistItem(parentCtx context.Context, userID string, fundCode stri
 	return result.DeletedCount > 0, nil
 }
 
-func updateWatchlistThreshold(parentCtx context.Context, userID string, fundCode string, alertThreshold float64) (WatchlistItem, bool, error) {
+func updateWatchlistItem(parentCtx context.Context, userID string, fundCode string, updateFields map[string]any) (WatchlistItem, bool, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
@@ -98,9 +98,7 @@ func updateWatchlistThreshold(parentCtx context.Context, userID string, fundCode
 	}
 
 	update := bson.M{
-		"$set": bson.M{
-			"alertThreshold": alertThreshold,
-		},
+		"$set": bson.M(updateFields),
 	}
 
 	result, err := collection.UpdateOne(ctx, filter, update)
