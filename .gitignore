@@ -1,8 +1,35 @@
+# Environment files
 .env
+.env.local
+.env.*.local
 backend-go/.env
-client/.env.local
-__pycache__/
-.venv/
-*.log
-update.log
 backend-go/.env.docker
+client/.env.local
+
+# Dependencies and virtual environments
+node_modules/
+.venv/
+
+# Build outputs and caches
+.next/
+dist/
+build/
+out/
+tmp/
+temp/
+coverage/
+__pycache__/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+
+# Logs and temporary files
+logs/
+*.log
+*.bak
+*.tmp
+update.log
+
+# System files
+.DS_Store
+Thumbs.db
