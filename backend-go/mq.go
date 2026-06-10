@@ -18,6 +18,12 @@ var rabbitConn *amqp.Connection
 var rabbitPublishChannel *amqp.Channel
 var rabbitConsumerChannel *amqp.Channel
 
+type UpdateTaskMessage struct {
+	TaskID    string    `json:"task_id"`
+	Trigger   string    `json:"trigger"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 func updateQueueName() string {
 	name := os.Getenv("RABBITMQ_UPDATE_QUEUE")
 	if name == "" {
@@ -104,10 +110,6 @@ func publishUpdateTask(ctx context.Context, msg UpdateTaskMessage) error {
 			Body:         body,
 		},
 	)
-}
-
-func PublishUpdateTask(ctx context.Context, msg UpdateTaskMessage) error {
-	return publishUpdateTask(ctx, msg)
 }
 
 func startUpdateConsumer(ctx context.Context) error {

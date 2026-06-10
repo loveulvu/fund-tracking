@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -87,7 +88,7 @@ func updateFundsAsyncGinHandler(c *gin.Context) {
 	publishCtx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := PublishUpdateTask(publishCtx, UpdateTaskMessage{
+	if err := publishUpdateTask(publishCtx, UpdateTaskMessage{
 		TaskID:    taskID,
 		Trigger:   "manual",
 		CreatedAt: now,
@@ -150,4 +151,13 @@ func requireUpdateAPIKey(r *http.Request) bool {
 
 func configuredUpdateAPIKey() string {
 	return strings.TrimSpace(os.Getenv("UPDATE_API_KEY"))
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code string, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
+		Error:   code,
+		Message: message,
+	})
 }
