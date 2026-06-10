@@ -1,16 +1,19 @@
-package main
+package update
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -27,15 +30,17 @@ var defaultFundCodes = []string{
 	"004243",
 }
 
-type fundGZResponse struct {
-	FundCode     string `json:"fundcode"`
-	FundName     string `json:"name"`
-	NetValue     string `json:"dwjz"`
-	DayGrowth    string `json:"gszzl"`
-	NetValueDate string `json:"jzrq"`
-	UpdateTime   string `json:"gztime"`
+type Fund struct {
+	FundCode     string
+	FundName     string
+	NetValue     float64
+	DayGrowth    float64
+	NetValueDate string
+	UpdateTime   any
+	IsSeed       bool
 }
-type updateFundsResponse struct {
+
+type Response struct {
 	Status       string   `json:"status"`
 	Updated      int      `json:"updated"`
 	Failed       []string `json:"failed"`
@@ -46,6 +51,49 @@ type updateFundsResponse struct {
 	FailedCodes  []string `json:"failed_codes"`
 	SkippedCodes []string `json:"skipped_codes"`
 }
+
+type Service struct {
+	fundCollection      *mongo.Collection
+	watchlistCollection *mongo.Collection
+	redisClient         *redis.Client
+	logger              *slog.Logger
+	upsertSnapshot      func(context.Context, Fund) error
+	cleanupSnapshots    func(context.Context) error
+	invalidateCache     func(context.Context, []string)
+}
+
+func NewService(
+	fundCollection *mongo.Collection,
+	watchlistCollection *mongo.Collection,
+	redisClient *redis.Client,
+	logger *slog.Logger,
+	upsertSnapshot func(context.Context, Fund) error,
+	cleanupSnapshots func(context.Context) error,
+	invalidateCache func(context.Context, []string),
+) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Service{
+		fundCollection:      fundCollection,
+		watchlistCollection: watchlistCollection,
+		redisClient:         redisClient,
+		logger:              logger,
+		upsertSnapshot:      upsertSnapshot,
+		cleanupSnapshots:    cleanupSnapshots,
+		invalidateCache:     invalidateCache,
+	}
+}
+
+type fundGZResponse struct {
+	FundCode     string `json:"fundcode"`
+	FundName     string `json:"name"`
+	NetValue     string `json:"dwjz"`
+	DayGrowth    string `json:"gszzl"`
+	NetValueDate string `json:"jzrq"`
+	UpdateTime   string `json:"gztime"`
+}
+
 type updateFundResult struct {
 	Code  string
 	OK    bool
@@ -60,6 +108,7 @@ func parseFloatOrZero(value string) float64 {
 	}
 	return parsed
 }
+
 func parseFloatRequired(value string, fieldName string) (float64, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -71,7 +120,8 @@ func parseFloatRequired(value string, fieldName string) (float64, error) {
 	}
 	return parsed, nil
 }
-func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
+
+func (s *Service) fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	url := fmt.Sprintf("https://fundgz.1234567.com.cn/js/%s.js", fundCode)
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -81,32 +131,18 @@ func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	req.Header.Set("User-agent", "Mozilla/5.0")
 	resp, err := client.Do(req)
 	if err != nil {
-		appLogger.Error("fund_fetch_failed",
-			"fund_code", fundCode,
-			"source", "fundgz",
-			"error", err,
-		)
+		s.logger.Error("fund_fetch_failed", "fund_code", fundCode, "source", "fundgz", "error", err)
 		return Fund{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("fund API returned status %d", resp.StatusCode)
-		appLogger.Error("fund_fetch_failed",
-			"fund_code", fundCode,
-			"source", "fundgz",
-			"status", resp.StatusCode,
-			"error", err,
-		)
+		s.logger.Error("fund_fetch_failed", "fund_code", fundCode, "source", "fundgz", "status", resp.StatusCode, "error", err)
 		return Fund{}, err
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		appLogger.Error("fund_fetch_failed",
-			"fund_code", fundCode,
-			"source", "fundgz",
-			"stage", "read_body",
-			"error", err,
-		)
+		s.logger.Error("fund_fetch_failed", "fund_code", fundCode, "source", "fundgz", "stage", "read_body", "error", err)
 		return Fund{}, err
 	}
 	body := strings.TrimSpace(string(bodyBytes))
@@ -114,12 +150,7 @@ func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 	body = strings.TrimSuffix(body, ");")
 	var data fundGZResponse
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
-		appLogger.Error("fund_fetch_failed",
-			"fund_code", fundCode,
-			"source", "fundgz",
-			"stage", "decode",
-			"error", err,
-		)
+		s.logger.Error("fund_fetch_failed", "fund_code", fundCode, "source", "fundgz", "stage", "decode", "error", err)
 		return Fund{}, err
 	}
 	netValue, err := parseFloatRequired(data.NetValue, "dwjz")
@@ -136,6 +167,7 @@ func fetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
 		IsSeed:       true,
 	}, nil
 }
+
 func validateFetchedFund(requestedCode string, fund Fund) error {
 	fundCode := strings.TrimSpace(fund.FundCode)
 	if fundCode == "" {
@@ -167,12 +199,9 @@ func validateFetchedFund(requestedCode string, fund Fund) error {
 	}
 	return nil
 }
-func upsertFundBasicInfo(ctx context.Context, fund Fund) error {
 
-	collection := getFundCollection()
-	filter := bson.M{
-		"fund_code": fund.FundCode,
-	}
+func (s *Service) upsertFundBasicInfo(ctx context.Context, fund Fund) error {
+	filter := bson.M{"fund_code": fund.FundCode}
 	update := bson.M{
 		"$set": bson.M{
 			"fund_code":      fund.FundCode,
@@ -184,21 +213,13 @@ func upsertFundBasicInfo(ctx context.Context, fund Fund) error {
 			"is_seed":        fund.IsSeed,
 		},
 	}
-	_, err := collection.UpdateOne(
-		ctx,
-		filter,
-		update,
-		options.Update().SetUpsert(true),
-	)
+	_, err := s.fundCollection.UpdateOne(ctx, filter, update, options.Update().SetUpsert(true))
 	if err != nil {
-		appLogger.Error("mongo_write_failed",
-			"operation", "upsert_fund_basic_info",
-			"fund_code", fund.FundCode,
-			"error", err,
-		)
+		s.logger.Error("mongo_write_failed", "operation", "upsert_fund_basic_info", "fund_code", fund.FundCode, "error", err)
 	}
 	return err
 }
+
 func isValidFundCode(code string) bool {
 	if len(code) != 6 {
 		return false
@@ -210,6 +231,11 @@ func isValidFundCode(code string) bool {
 	}
 	return true
 }
+
+func IsValidFundCode(code string) bool {
+	return isValidFundCode(code)
+}
+
 func appendUniqueValidCode(codes []string, skipped []string, seen map[string]bool, skippedSeen map[string]bool, rawCode string) ([]string, []string) {
 	code := strings.TrimSpace(rawCode)
 	if !isValidFundCode(code) {
@@ -226,9 +252,9 @@ func appendUniqueValidCode(codes []string, skipped []string, seen map[string]boo
 	codes = append(codes, code)
 	return codes, skipped
 }
-func findWatchlistFundCodes(ctx context.Context) ([]string, error) {
-	collection := mongoClient.Database("fund_tracking").Collection("watchlists")
-	values, err := collection.Distinct(ctx, "fundCode", bson.M{})
+
+func (s *Service) findWatchlistFundCodes(ctx context.Context) ([]string, error) {
+	values, err := s.watchlistCollection.Distinct(ctx, "fundCode", bson.M{})
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +268,8 @@ func findWatchlistFundCodes(ctx context.Context) ([]string, error) {
 	}
 	return codes, nil
 }
-func buildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
+
+func (s *Service) buildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
 	codes := make([]string, 0, len(defaultFundCodes))
 	skipped := make([]string, 0)
 	seen := make(map[string]bool)
@@ -252,7 +279,7 @@ func buildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
 		codes, skipped = appendUniqueValidCode(codes, skipped, seen, skippedSeen, code)
 	}
 
-	watchlistCodes, err := findWatchlistFundCodes(ctx)
+	watchlistCodes, err := s.findWatchlistFundCodes(ctx)
 	if err != nil {
 		return nil, skipped, err
 	}
@@ -262,21 +289,19 @@ func buildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
 	return codes, skipped, nil
 }
 
-func executeFundUpdate(ctx context.Context) updateFundsResponse {
+func (s *Service) BuildUpdateFundCodes(ctx context.Context) ([]string, []string, error) {
+	return s.buildUpdateFundCodes(ctx)
+}
+
+func (s *Service) executeFundUpdate(ctx context.Context) Response {
 	start := time.Now()
 
-	targetCodes, skippedCodes, err := buildUpdateFundCodes(ctx)
+	targetCodes, skippedCodes, err := s.buildUpdateFundCodes(ctx)
 	if err != nil {
-		return updateFundsResponse{
-			Status:       "failed",
-			Updated:      0,
-			Failed:       []string{"build update fund codes failed: " + err.Error()},
-			Total:        0,
-			DurationMs:   time.Since(start).Milliseconds(),
-			TargetCodes:  []string{},
-			UpdatedCodes: []string{},
-			FailedCodes:  []string{},
-			SkippedCodes: skippedCodes,
+		return Response{
+			Status: "failed", Updated: 0, Failed: []string{"build update fund codes failed: " + err.Error()},
+			Total: 0, DurationMs: time.Since(start).Milliseconds(), TargetCodes: []string{},
+			UpdatedCodes: []string{}, FailedCodes: []string{}, SkippedCodes: skippedCodes,
 		}
 	}
 
@@ -284,19 +309,15 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 	failed := make([]string, 0)
 	updatedCodes := make([]string, 0, len(targetCodes))
 	failedCodes := make([]string, 0)
-
-	results := runUpdateWorkers(ctx, targetCodes, 3)
-
+	results := s.runUpdateWorkers(ctx, targetCodes, 3)
 	completedCodes := make(map[string]bool)
 	for _, result := range results {
 		completedCodes[result.Code] = true
-
 		if !result.OK {
 			failed = append(failed, result.Code+":"+result.Stage+" failed:"+result.Err.Error())
 			failedCodes = append(failedCodes, result.Code)
 			continue
 		}
-
 		updated++
 		updatedCodes = append(updatedCodes, result.Code)
 	}
@@ -305,7 +326,6 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 	if ctx.Err() != nil {
 		missingReason = ctx.Err().Error()
 	}
-
 	for _, fundCode := range targetCodes {
 		if !completedCodes[fundCode] {
 			failed = append(failed, fundCode+":timeout failed:"+missingReason)
@@ -313,8 +333,10 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 		}
 	}
 
-	if err := cleanupOldFundDailySnapshots(ctx); err != nil {
-		appLogger.Error("fund_snapshot_cleanup_failed", "error", err)
+	if s.cleanupSnapshots != nil {
+		if err := s.cleanupSnapshots(ctx); err != nil {
+			s.logger.Error("fund_snapshot_cleanup_failed", "error", err)
+		}
 	}
 
 	status := "success"
@@ -324,58 +346,51 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 	if updated == 0 && len(failed) > 0 {
 		status = "failed"
 	}
-
-	return updateFundsResponse{
-		Status:       status,
-		Updated:      updated,
-		Failed:       failed,
-		Total:        len(targetCodes),
-		DurationMs:   time.Since(start).Milliseconds(),
-		TargetCodes:  targetCodes,
-		UpdatedCodes: updatedCodes,
-		FailedCodes:  failedCodes,
-		SkippedCodes: skippedCodes,
+	return Response{
+		Status: status, Updated: updated, Failed: failed, Total: len(targetCodes),
+		DurationMs: time.Since(start).Milliseconds(), TargetCodes: targetCodes,
+		UpdatedCodes: updatedCodes, FailedCodes: failedCodes, SkippedCodes: skippedCodes,
 	}
 }
-func updateSingleFund(ctx context.Context, fundCode string) updateFundResult {
-	fund, err := fetchFundBasicInfo(ctx, fundCode)
+
+func (s *Service) invalidateFundDetailCache(ctx context.Context, codes []string) {
+	if s.invalidateCache != nil {
+		s.invalidateCache(ctx, codes)
+	}
+}
+
+func (s *Service) updateSingleFund(ctx context.Context, fundCode string) updateFundResult {
+	fund, err := s.fetchFundBasicInfo(ctx, fundCode)
 	if err != nil {
-		return updateFundResult{
-			Code:  fundCode,
-			OK:    false,
-			Stage: "fetch",
-			Err:   err,
-		}
+		return updateFundResult{Code: fundCode, OK: false, Stage: "fetch", Err: err}
 	}
 	if err := validateFetchedFund(fundCode, fund); err != nil {
-		return updateFundResult{
-			Code:  fundCode,
-			OK:    false,
-			Stage: "validate",
-			Err:   err,
+		return updateFundResult{Code: fundCode, OK: false, Stage: "validate", Err: err}
+	}
+	if err := s.upsertFundBasicInfo(ctx, fund); err != nil {
+		return updateFundResult{Code: fundCode, OK: false, Stage: "upsert", Err: err}
+	}
+	if s.upsertSnapshot != nil {
+		if err := s.upsertSnapshot(ctx, fund); err != nil {
+			s.logger.Error("fund_snapshot_upsert_failed", "fund_code", fundCode, "net_value_date", fund.NetValueDate, "error", err)
 		}
 	}
-	if err := upsertFundBasicInfo(ctx, fund); err != nil {
-		return updateFundResult{
-			Code:  fundCode,
-			OK:    false,
-			Stage: "upsert",
-			Err:   err,
-		}
-	}
-	if err := upsertFundDailySnapshot(ctx, fund); err != nil {
-		appLogger.Error("fund_snapshot_upsert_failed",
-			"fund_code", fundCode,
-			"net_value_date", fund.NetValueDate,
-			"error", err,
-		)
-	}
-	return updateFundResult{
-		Code: fundCode,
-		OK:   true,
-	}
+	return updateFundResult{Code: fundCode, OK: true}
 }
-func runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int) []updateFundResult {
+
+func (s *Service) FetchFundBasicInfo(ctx context.Context, fundCode string) (Fund, error) {
+	return s.fetchFundBasicInfo(ctx, fundCode)
+}
+
+func ValidateFetchedFund(requestedCode string, fund Fund) error {
+	return validateFetchedFund(requestedCode, fund)
+}
+
+func (s *Service) UpsertFundBasicInfo(ctx context.Context, fund Fund) error {
+	return s.upsertFundBasicInfo(ctx, fund)
+}
+
+func (s *Service) runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int) []updateFundResult {
 	if workerCount <= 0 {
 		workerCount = 1
 	}
@@ -390,7 +405,7 @@ func runUpdateWorkers(ctx context.Context, targetCodes []string, workerCount int
 	for i := 0; i < workerCount; i++ {
 		go func() {
 			for fundCode := range jobs {
-				results <- updateSingleFund(ctx, fundCode)
+				results <- s.updateSingleFund(ctx, fundCode)
 			}
 		}()
 	}

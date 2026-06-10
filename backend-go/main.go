@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	updatepkg "fund-tracking-backend-go/internal/update"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
@@ -334,12 +335,35 @@ func main() {
 		appLogger.Info("redis_connected")
 		defer redisClient.Close()
 	}
+
+	fundUpdateService = updatepkg.NewService(
+		fundCollection,
+		mongoClient.Database("fund_tracking").Collection("watchlists"),
+		redisClient,
+		appLogger,
+		func(ctx context.Context, fund updatepkg.Fund) error {
+			return upsertFundDailySnapshot(ctx, Fund{
+				FundCode:     fund.FundCode,
+				FundName:     fund.FundName,
+				NetValue:     fund.NetValue,
+				DayGrowth:    fund.DayGrowth,
+				NetValueDate: fund.NetValueDate,
+				UpdateTime:   fund.UpdateTime,
+				IsSeed:       fund.IsSeed,
+			})
+		},
+		cleanupOldFundDailySnapshots,
+		invalidateFundDetailCache,
+	)
+	updateHandler := updatepkg.NewHandler(fundUpdateService, publishUpdateTask, updateQueueName, appLogger)
+	updateWorker := updatepkg.NewWorker(fundUpdateService, appLogger)
+
 	if err := initRabbitMQ(); err != nil {
 		appLogger.Warn("rabbitmq_init_failed", "error", err)
 	} else {
 		appLogger.Info("rabbitmq_connected")
 		defer closeRabbitMQ()
-		if err := startUpdateConsumer(context.Background()); err != nil {
+		if err := startUpdateConsumer(context.Background(), updateWorker); err != nil {
 			appLogger.Warn("rabbitmq_consumer_start_failed", "error", err)
 		} else {
 			appLogger.Info("rabbitmq_update_consumer_started", "queue", updateQueueName())
@@ -358,9 +382,7 @@ func main() {
 	auth.POST("/verify-email-code", verifyEmailCodeGinHandler)
 	auth.POST("/resend-email-code", resendEmailCodeGinHandler)
 	auth.GET("/me", ginAuthMiddleware(), meGinHandler)
-	api.POST("/update", updateFundsGinHandler)
-	api.POST("/update/async", updateFundsAsyncGinHandler)
-	api.GET("/update/tasks/:id", updateTaskStatusGinHandler)
+	updateHandler.RegisterRoutes(api)
 
 	api.POST("/funds/enrich", enrichFundsGinHandler)
 	api.POST("/funds/performance", performanceFundsGinHandler)

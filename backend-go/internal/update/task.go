@@ -1,4 +1,4 @@
-package main
+package update
 
 import (
 	"context"
@@ -26,20 +26,20 @@ type updateTaskCreateResponse struct {
 }
 
 type updateTask struct {
-	ID         string               `json:"id"`
-	Status     updateTaskStatus     `json:"status"`
-	StartedAt  time.Time            `json:"started_at"`
-	FinishedAt *time.Time           `json:"finished_at,omitempty"`
-	Response   *updateFundsResponse `json:"response,omitempty"`
-	Error      string               `json:"error,omitempty"`
+	ID         string           `json:"id"`
+	Status     updateTaskStatus `json:"status"`
+	StartedAt  time.Time        `json:"started_at"`
+	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+	Response   *Response        `json:"response,omitempty"`
+	Error      string           `json:"error,omitempty"`
 }
 
 func updateTaskKey(taskID string) string {
 	return "fund:update:task:" + taskID
 }
 
-func saveUpdateTask(ctx context.Context, task *updateTask) error {
-	if redisClient == nil {
+func (s *Service) saveUpdateTask(ctx context.Context, task *updateTask) error {
+	if s.redisClient == nil {
 		return errors.New("redis client is not initialized")
 	}
 	if task == nil {
@@ -49,14 +49,14 @@ func saveUpdateTask(ctx context.Context, task *updateTask) error {
 	if err != nil {
 		return err
 	}
-	return redisClient.Set(ctx, updateTaskKey(task.ID), data, updateTaskTTL).Err()
+	return s.redisClient.Set(ctx, updateTaskKey(task.ID), data, updateTaskTTL).Err()
 }
 
-func loadUpdateTask(ctx context.Context, taskID string) (*updateTask, bool, error) {
-	if redisClient == nil {
+func (s *Service) loadUpdateTask(ctx context.Context, taskID string) (*updateTask, bool, error) {
+	if s.redisClient == nil {
 		return nil, false, errors.New("redis client is not initialized")
 	}
-	data, err := redisClient.Get(ctx, updateTaskKey(taskID)).Result()
+	data, err := s.redisClient.Get(ctx, updateTaskKey(taskID)).Result()
 	if err == redis.Nil {
 		return nil, false, nil
 	}

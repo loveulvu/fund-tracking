@@ -1,4 +1,4 @@
-package main
+package update
 
 import (
 	"context"
@@ -29,15 +29,15 @@ func newLockToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func acquireUpdateLock(ctx context.Context) (bool, string, error) {
-	if redisClient == nil {
+func (s *Service) acquireUpdateLock(ctx context.Context) (bool, string, error) {
+	if s.redisClient == nil {
 		return false, "", errors.New("redis client is not initialized")
 	}
 	token, err := newLockToken()
 	if err != nil {
 		return false, "", err
 	}
-	locked, err := redisClient.SetNX(ctx, updateLockKey, token, updateLockTTL).Result()
+	locked, err := s.redisClient.SetNX(ctx, updateLockKey, token, updateLockTTL).Result()
 	if err != nil {
 		return false, "", err
 	}
@@ -47,14 +47,14 @@ func acquireUpdateLock(ctx context.Context) (bool, string, error) {
 	return true, token, nil
 }
 
-func releaseUpdateLock(ctx context.Context, token string) (bool, error) {
-	if redisClient == nil {
+func (s *Service) releaseUpdateLock(ctx context.Context, token string) (bool, error) {
+	if s.redisClient == nil {
 		return false, errors.New("redis client is not initialized")
 	}
 	if token == "" {
 		return false, errors.New("lock token is empty")
 	}
-	result, err := releaseUpdateLockScript.Run(ctx, redisClient, []string{updateLockKey}, token).Int()
+	result, err := releaseUpdateLockScript.Run(ctx, s.redisClient, []string{updateLockKey}, token).Int()
 	if err != nil {
 		return false, err
 	}
