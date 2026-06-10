@@ -81,18 +81,6 @@ func getenvDefault(key string, fallback string) string {
 	return value
 }
 
-//	func getFundCollection(ctx context.Context) (*mongo.Client, *mongo.Collection, error) {
-//		uri := os.Getenv("MONGO_URI")
-//		if uri == "" {
-//			uri = "mongodb://127.0.0.1:27017"
-//		}
-//		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-//		if err != nil {
-//			return nil, nil, err
-//		}
-//		collection := client.Database("fund_tracking").Collection("fund_data")
-//		return client, collection, nil
-//	}
 func findFundsByFilter(parentCtx context.Context, filter bson.M) ([]Fund, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
@@ -345,6 +333,17 @@ func main() {
 	} else {
 		appLogger.Info("redis_connected")
 		defer redisClient.Close()
+	}
+	if err := initRabbitMQ(); err != nil {
+		appLogger.Warn("rabbitmq_init_failed", "error", err)
+	} else {
+		appLogger.Info("rabbitmq_connected")
+		defer closeRabbitMQ()
+		if err := startUpdateConsumer(context.Background()); err != nil {
+			appLogger.Warn("rabbitmq_consumer_start_failed", "error", err)
+		} else {
+			appLogger.Info("rabbitmq_update_consumer_started", "queue", updateQueueName())
+		}
 	}
 	r := gin.Default()
 	r.Use(ginCORSMiddleware())

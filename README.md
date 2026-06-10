@@ -219,3 +219,37 @@ curl -i https://api-fund.fundtracking.online/api/funds
 - 当前重点是 Go 后端实习项目展示和逐步重构过程，不追求复杂微服务架构。
 - 数据库 schema 默认不随意改动，优先保持前端 API 兼容。
 - 真实密钥只应保存在部署环境、GitHub Secrets 或服务器配置中，不应提交到仓库。
+
+## RabbitMQ local setup
+
+Async fund updates now go through RabbitMQ before the Go consumer executes the update task. The first version uses one durable queue:
+
+```text
+fund.update.tasks
+```
+
+Start RabbitMQ locally:
+
+```bash
+docker run -d --name fundtracking-rabbitmq \
+  --hostname fundtracking-rabbitmq \
+  -p 5672:5672 \
+  -p 15672:15672 \
+  rabbitmq:4-management
+```
+
+RabbitMQ environment variables:
+
+```text
+RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
+RABBITMQ_UPDATE_QUEUE=fund.update.tasks
+```
+
+Verification flow:
+
+1. Start Redis.
+2. Start RabbitMQ.
+3. Start the Go backend.
+4. Call `POST /api/update/async` with `X-Update-Key`.
+5. Call `GET /api/update/tasks/:id` with `X-Update-Key`.
+6. Open `http://localhost:15672` and inspect the `fund.update.tasks` queue.

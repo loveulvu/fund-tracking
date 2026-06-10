@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -54,204 +52,7 @@ type updateFundResult struct {
 	Stage string
 	Err   error
 }
-type updateTaskStatus string
 
-const (
-	updateTaskPending updateTaskStatus = "pending"
-	updateTaskRunning updateTaskStatus = "running"
-	updateTaskSuccess updateTaskStatus = "success"
-	updateTaskFailed  updateTaskStatus = "failed"
-)
-
-type updateTaskCreateResponse struct {
-	Status string `json:"status"`
-	TaskID string `json:"task_id"`
-}
-
-type updateTask struct {
-	ID         string               `json:"id"`
-	Status     updateTaskStatus     `json:"status"`
-	StartedAt  time.Time            `json:"started_at"`
-	FinishedAt *time.Time           `json:"finished_at,omitempty"`
-	Response   *updateFundsResponse `json:"response,omitempty"`
-	Error      string               `json:"error,omitempty"`
-}
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
-}
-
-func updateFundsGinHandler(c *gin.Context) {
-	if !requireUpdateAPIKey(c.Request) {
-		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	locked, lockToken, err := acquireUpdateLock(ctx)
-	if err != nil {
-		appLogger.Error("fund_update_lock_failed", "mode", "sync", "error", err)
-		ErrorFail(c, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
-		return
-	}
-
-	if !locked {
-		ErrorFail(c, http.StatusConflict, "update_locked", "fund update is already running")
-		return
-	}
-
-	defer func() {
-		released, err := releaseUpdateLock(context.Background(), lockToken)
-		if err != nil {
-			appLogger.Error("fund_update_unlock_failed", "mode", "sync", "error", err)
-			return
-		}
-		if !released {
-			appLogger.Warn("fund_update_unlock_skipped", "mode", "sync")
-		}
-	}()
-
-	appLogger.Info("fund_update_start", "mode", "sync")
-
-	response := executeFundUpdate(ctx)
-	invalidateFundDetailCache(ctx, response.UpdatedCodes)
-
-	appLogger.Info("fund_update_end",
-		"mode", "sync",
-		"status", response.Status,
-		"updated", response.Updated,
-		"failed", len(response.FailedCodes),
-		"duration_ms", response.DurationMs,
-	)
-
-	c.JSON(http.StatusOK, response)
-}
-func updateFundsAsyncGinHandler(c *gin.Context) {
-	if !requireUpdateAPIKey(c.Request) {
-		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-
-	lockCtx, lockCancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer lockCancel()
-
-	locked, lockToken, err := acquireUpdateLock(lockCtx)
-	if err != nil {
-		appLogger.Error("fund_update_lock_failed", "mode", "async", "error", err)
-		ErrorFail(c, http.StatusInternalServerError, "redis_lock_error", "failed to acquire update lock")
-		return
-	}
-
-	if !locked {
-		ErrorFail(c, http.StatusConflict, "update_locked", "fund update is already running")
-		return
-	}
-
-	taskID := fmt.Sprintf("update_%d", time.Now().UnixNano())
-
-	task := &updateTask{
-		ID:        taskID,
-		Status:    updateTaskPending,
-		StartedAt: time.Now(),
-	}
-
-	if err := saveUpdateTask(c.Request.Context(), task); err != nil {
-		appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "error", err)
-		ErrorFail(c, http.StatusInternalServerError, "redis_task_error", "failed to save update task")
-		return
-	}
-
-	appLogger.Info("fund_update_task_created",
-		"task_id", taskID,
-		"status", task.Status,
-	)
-
-	go func(lockToken string) {
-		defer func() {
-			released, err := releaseUpdateLock(context.Background(), lockToken)
-			if err != nil {
-				appLogger.Error("fund_update_unlock_failed", "mode", "async", "task_id", taskID, "error", err)
-				return
-			}
-			if !released {
-				appLogger.Warn("fund_update_unlock_skipped", "mode", "async", "task_id", taskID)
-			}
-		}()
-
-		task.Status = updateTaskRunning
-		if err := saveUpdateTask(context.Background(), task); err != nil {
-			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
-			return
-		}
-
-		appLogger.Info("fund_update_task_started", "task_id", taskID)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-
-		response := executeFundUpdate(ctx)
-		invalidateFundDetailCache(ctx, response.UpdatedCodes)
-
-		finishedAt := time.Now()
-		task.Response = &response
-		task.FinishedAt = &finishedAt
-
-		if response.Status == "success" || response.Status == "partial_success" {
-			task.Status = updateTaskSuccess
-		} else {
-			task.Status = updateTaskFailed
-			task.Error = "fund update failed"
-		}
-
-		taskStatus := task.Status
-
-		if err := saveUpdateTask(context.Background(), task); err != nil {
-			appLogger.Error("fund_update_task_save_failed", "task_id", taskID, "status", task.Status, "error", err)
-			return
-		}
-
-		appLogger.Info("fund_update_task_finished",
-			"task_id", taskID,
-			"status", taskStatus,
-			"updated", response.Updated,
-			"failed", len(response.FailedCodes),
-			"duration_ms", response.DurationMs,
-		)
-	}(lockToken)
-
-	c.JSON(http.StatusAccepted, updateTaskCreateResponse{
-		Status: "accepted",
-		TaskID: taskID,
-	})
-}
-func updateTaskStatusGinHandler(c *gin.Context) {
-	if !requireUpdateAPIKey(c.Request) {
-		ErrorFail(c, http.StatusUnauthorized, "unauthorized", "missing or invalid token")
-		return
-	}
-
-	taskID := strings.TrimSpace(c.Param("id"))
-	if taskID == "" {
-		ErrorFail(c, http.StatusBadRequest, "invalid_request", "task_id is required")
-		return
-	}
-
-	task, ok, err := loadUpdateTask(c.Request.Context(), taskID)
-	if err != nil {
-		appLogger.Error("fund_update_task_load_failed", "task_id", taskID, "error", err)
-		ErrorFail(c, http.StatusInternalServerError, "redis_task_error", "failed to load update task")
-		return
-	}
-
-	if !ok {
-		ErrorFail(c, http.StatusNotFound, "not_found", "task not found")
-		return
-	}
-
-	c.JSON(http.StatusOK, task)
-}
 func parseFloatOrZero(value string) float64 {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {
@@ -535,18 +336,6 @@ func executeFundUpdate(ctx context.Context) updateFundsResponse {
 		FailedCodes:  failedCodes,
 		SkippedCodes: skippedCodes,
 	}
-}
-func requireUpdateAPIKey(r *http.Request) bool {
-	expectedKey := configuredUpdateAPIKey()
-	if expectedKey == "" {
-		return false
-	}
-
-	providedKey := strings.TrimSpace(r.Header.Get("X-Update-Key"))
-	return providedKey != "" && providedKey == expectedKey
-}
-func configuredUpdateAPIKey() string {
-	return strings.TrimSpace(os.Getenv("UPDATE_API_KEY"))
 }
 func updateSingleFund(ctx context.Context, fundCode string) updateFundResult {
 	fund, err := fetchFundBasicInfo(ctx, fundCode)

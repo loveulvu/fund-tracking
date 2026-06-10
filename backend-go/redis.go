@@ -2,31 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-const updateLockKey = "lock:fundtracking:update"
-const updateLockTTL = 5 * time.Minute
-const updateTaskTTL = 1 * time.Hour
-
-func updateTaskKey(taskID string) string {
-	return "fund:update:task:" + taskID
-}
-
-var releaseUpdateLockScript = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-	return redis.call("DEL", KEYS[1])
-else
-	return 0
-end
-`)
 var redisClient *redis.Client
 
 func initRedis() error {
@@ -63,36 +44,7 @@ func initRedis() error {
 func getRedisClient() *redis.Client {
 	return redisClient
 }
-func saveUpdateTask(ctx context.Context, task *updateTask) error {
-	if redisClient == nil {
-		return errors.New("redis client is not initialized")
-	}
-	if task == nil {
-		return errors.New("task is nil")
-	}
-	data, err := json.Marshal(task)
-	if err != nil {
-		return err
-	}
-	return redisClient.Set(ctx, updateTaskKey(task.ID), data, updateTaskTTL).Err()
-}
-func loadUpdateTask(ctx context.Context, taskID string) (*updateTask, bool, error) {
-	if redisClient == nil {
-		return nil, false, errors.New("redis client is not initialized")
-	}
-	data, err := redisClient.Get(ctx, updateTaskKey(taskID)).Result()
-	if err == redis.Nil {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	var task updateTask
-	if err := json.Unmarshal([]byte(data), &task); err != nil {
-		return nil, false, err
-	}
-	return &task, true, nil
-}
+
 func invalidateFundDetailCache(ctx context.Context, codes []string) {
 	if redisClient == nil || len(codes) == 0 {
 		return
@@ -105,43 +57,7 @@ func invalidateFundDetailCache(ctx context.Context, codes []string) {
 		appLogger.Warn("redis_delete_failed", "keys", keys, "error", err)
 	}
 }
-func newLockToken() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-func acquireUpdateLock(ctx context.Context) (bool, string, error) {
-	if redisClient == nil {
-		return false, "", errors.New("redis client is not initialized")
-	}
-	token, err := newLockToken()
-	if err != nil {
-		return false, "", err
-	}
-	locked, err := redisClient.SetNX(ctx, updateLockKey, token, updateLockTTL).Result()
-	if err != nil {
-		return false, "", err
-	}
-	if !locked {
-		return false, "", nil
-	}
-	return true, token, nil
-}
-func releaseUpdateLock(ctx context.Context, token string) (bool, error) {
-	if redisClient == nil {
-		return false, errors.New("redis client is not initialized")
-	}
-	if token == "" {
-		return false, errors.New("lock token is empty")
-	}
-	result, err := releaseUpdateLockScript.Run(ctx, redisClient, []string{updateLockKey}, token).Int()
-	if err != nil {
-		return false, err
-	}
-	return result == 1, nil
-}
+
 func searchCacheKey(query string) string {
 	return "fund:search:" + query
 }
